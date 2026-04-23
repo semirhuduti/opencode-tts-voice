@@ -8,13 +8,18 @@ Voice output plugin for OpenCode powered by Kokoro.
 - reads assistant responses aloud while they stream
 - supports configurable voice, speed, model, precision, and playback settings
 - supports CPU and GPU execution
-- plays audio locally with `aplay`
+- plays audio locally with the system audio player
 
 ## Requirements
 
-- Linux
+- Linux or macOS
 - OpenCode with plugin support
-- `aplay` available on the system
+- a local audio player command available on the system
+
+Defaults:
+
+- Linux: `aplay`
+- macOS: `afplay`
 
 Optional:
 
@@ -56,8 +61,8 @@ Example `~/.config/opencode/opencode.json`:
 | `dtype` | string | `q8` | Model precision. Accepted values: `fp32`, `fp16`, `q4`, `q4f16`, `q8`. |
 | `model` | string | `onnx-community/Kokoro-82M-v1.0-ONNX` | Model ID or compatible local model path. |
 | `cacheDir` | string | OS-specific cache directory | Directory used for model downloads and cache data. |
-| `playerBin` | string | `aplay` | Playback command. |
-| `playerArgs` | string or string[] | `-q` | Additional arguments passed to the playback command. |
+| `playerBin` | string | OS-specific | Playback command. Defaults to `aplay` on Linux and `afplay` on macOS. |
+| `playerArgs` | string or string[] | OS-specific | Additional arguments passed to the playback command. Defaults to `-q` on Linux and no extra arguments on macOS. |
 | `readResponses` | boolean | `true` | Speak streamed assistant responses. |
 | `announceOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
 | `idleMessage` | string | `Task completed.` | Idle message text. |

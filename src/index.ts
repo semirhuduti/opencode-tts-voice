@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { access, mkdir } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -202,6 +202,7 @@ interface TransformersModule {
 interface PlaybackController {
   cancelled: boolean;
   playerInput?: ReturnType<typeof createPcmPlayer>["stdin"];
+  playerProcess?: ChildProcess;
 }
 
 interface SpeechStreamState {
@@ -221,6 +222,14 @@ const DEFAULT_CHUNK_PAUSE_MS = 50;
 const CLAUSE_CHUNK_PAUSE_MS = 80;
 const SENTENCE_CHUNK_PAUSE_MS = 140;
 
+function getDefaultPlayerArgs(): string[] {
+  return process.platform === "darwin" ? [] : ["-q"];
+}
+
+function getDefaultPlayerBin(): string {
+  return process.platform === "darwin" ? "afplay" : "aplay";
+}
+
 const defaultConfig: TtsConfig = {
   announceOnIdle: false,
   cacheDir: getDefaultCacheDir(),
@@ -233,8 +242,8 @@ const defaultConfig: TtsConfig = {
   leadingAudioPadMs: LEADING_AUDIO_PAD_MS,
   maxTextLength: 2000,
   model: "onnx-community/Kokoro-82M-v1.0-ONNX",
-  playerArgs: ["-q"],
-  playerBin: "aplay",
+  playerArgs: getDefaultPlayerArgs(),
+  playerBin: getDefaultPlayerBin(),
   readResponses: true,
   speechChunkLength: 1000,
   speed: 1,
@@ -647,9 +656,91 @@ function createPcmPlayer(sampleRate: number, config: TtsConfig) {
   });
 
   return {
+    child,
     done,
     stdin: child.stdin,
   };
+}
+
+function createWavBuffer(audio: Float32Array, sampleRate: number): Buffer {
+  const pcm = toPcm16Buffer(audio);
+  const header = Buffer.alloc(44);
+
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(pcm.length, 40);
+
+  return Buffer.concat([header, pcm]);
+}
+
+function useFilePlayback(config: TtsConfig): boolean {
+  return process.platform === "darwin" && config.playerBin === "afplay";
+}
+
+async function playAudioFile(
+  config: TtsConfig,
+  filePath: string,
+  controller: PlaybackController,
+): Promise<void> {
+  const child = spawn(config.playerBin, [...config.playerArgs, filePath], {
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  controller.playerProcess = child;
+
+  let stderr = "";
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", (code: number | null) => {
+        if (controller.cancelled && code !== 0) {
+          resolve();
+          return;
+        }
+
+        if (code === 0) {
+          resolve();
+          return;
+        }
+
+        reject(new Error(stderr.trim() || `${config.playerBin} exited with code ${code}`));
+      });
+    });
+  } finally {
+    if (controller.playerProcess === child) {
+      controller.playerProcess = undefined;
+    }
+  }
+}
+
+async function playChunkViaFile(
+  config: TtsConfig,
+  audio: Float32Array,
+  sampleRate: number,
+  controller: PlaybackController,
+): Promise<void> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "opencode-tts-"));
+  const filePath = path.join(tempDir, "chunk.wav");
+
+  try {
+    await writeFile(filePath, createWavBuffer(audio, sampleRate));
+    await playAudioFile(config, filePath, controller);
+  } finally {
+    await rm(tempDir, { force: true, recursive: true });
+  }
 }
 
 function toPcm16Buffer(audio: Float32Array): Buffer {
@@ -722,6 +813,10 @@ function cancelPlayback(controller: PlaybackController): void {
   if (controller.playerInput && !controller.playerInput.destroyed) {
     controller.playerInput.destroy(new Error("speech cancelled"));
   }
+
+  if (controller.playerProcess && !controller.playerProcess.killed) {
+    controller.playerProcess.kill("SIGTERM");
+  }
 }
 
 async function playGeneratedStream(
@@ -746,40 +841,66 @@ async function playGeneratedStream(
     }
 
     const sampleRate = getSampleRate(result.value.audio);
-    player = createPcmPlayer(sampleRate, config);
-    controller.playerInput = player.stdin;
+    if (useFilePlayback(config)) {
+      nextChunkPromise = iterator.next();
+      await playChunkViaFile(config, trimChunkAudio(config, result.value), sampleRate, controller);
 
-    nextChunkPromise = iterator.next();
-    await writeToPlayer(player.stdin, toPcm16Buffer(trimChunkAudio(config, result.value)));
+      while (true) {
+        result = await nextChunkPromise;
+        if (result.done || controller.cancelled) {
+          break;
+        }
 
-    while (true) {
-      result = await nextChunkPromise;
-      if (result.done || controller.cancelled) {
-        break;
+        const chunkRate = getSampleRate(result.value.audio);
+        if (chunkRate !== sampleRate) {
+          throw new Error(`inconsistent sample rate: ${chunkRate} !== ${sampleRate}`);
+        }
+
+        nextChunkPromise = iterator.next();
+        await playChunkViaFile(config, trimChunkAudio(config, result.value), sampleRate, controller);
       }
 
-      const chunkRate = getSampleRate(result.value.audio);
-      if (chunkRate !== sampleRate) {
-        throw new Error(`inconsistent sample rate: ${chunkRate} !== ${sampleRate}`);
+      if (controller.cancelled) {
+        await cancelIterator(iterator);
+        return;
       }
+    } else {
+      player = createPcmPlayer(sampleRate, config);
+      controller.playerInput = player.stdin;
+      controller.playerProcess = player.child;
 
       nextChunkPromise = iterator.next();
       await writeToPlayer(player.stdin, toPcm16Buffer(trimChunkAudio(config, result.value)));
-    }
 
-    if (controller.cancelled) {
-      player.stdin.destroy(new Error("speech cancelled"));
-      try {
-        await player.done;
-      } catch {
-        // Ignore player shutdown errors after explicit cancellation.
+      while (true) {
+        result = await nextChunkPromise;
+        if (result.done || controller.cancelled) {
+          break;
+        }
+
+        const chunkRate = getSampleRate(result.value.audio);
+        if (chunkRate !== sampleRate) {
+          throw new Error(`inconsistent sample rate: ${chunkRate} !== ${sampleRate}`);
+        }
+
+        nextChunkPromise = iterator.next();
+        await writeToPlayer(player.stdin, toPcm16Buffer(trimChunkAudio(config, result.value)));
       }
-      await cancelIterator(iterator);
-      return;
-    }
 
-    await closePlayerInput(player.stdin);
-    await player.done;
+      if (controller.cancelled) {
+        player.stdin.destroy(new Error("speech cancelled"));
+        try {
+          await player.done;
+        } catch {
+          // Ignore player shutdown errors after explicit cancellation.
+        }
+        await cancelIterator(iterator);
+        return;
+      }
+
+      await closePlayerInput(player.stdin);
+      await player.done;
+    }
   } catch (error) {
     if (nextChunkPromise) {
       void nextChunkPromise.catch(() => {});
@@ -804,6 +925,7 @@ async function playGeneratedStream(
     }
   } finally {
     controller.playerInput = undefined;
+    controller.playerProcess = undefined;
   }
 }
 
