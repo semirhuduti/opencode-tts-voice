@@ -1,6 +1,6 @@
 {
   "name": "@semirhuduti/opencode-tts-voice",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Local Kokoro TTS plugin for OpenCode",
   "files": [
     "dist",

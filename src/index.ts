@@ -891,13 +891,11 @@ async function probeKokoroDevice(device: RuntimeDevice, config: TtsConfig): Prom
   }
 
   const probeScript = [
-    "import { createRequire } from 'node:module';",
     "import { mkdir } from 'node:fs/promises';",
-    "import path from 'node:path';",
     "import { pathToFileURL } from 'node:url';",
-    "const require = createRequire(import.meta.url);",
-    "const runtimePath = require.resolve('kokoro-js');",
-    "const transformersPath = require.resolve('@huggingface/transformers', { paths: [path.dirname(runtimePath)] });",
+    "const runtimePath = process.env.OPENCODE_TTS_PROBE_RUNTIME_PATH;",
+    "const transformersPath = process.env.OPENCODE_TTS_PROBE_TRANSFORMERS_PATH;",
+    "if (!runtimePath || !transformersPath) throw new Error('probe runtime paths unavailable');",
     "const transformers = await import(pathToFileURL(transformersPath).href);",
     "const env = transformers.env ?? transformers.default?.env;",
     "if (!env) throw new Error('transformers env unavailable');",
@@ -915,14 +913,22 @@ async function probeKokoroDevice(device: RuntimeDevice, config: TtsConfig): Prom
     "});",
   ].join(" ");
 
+  const nodeExecutable = process.env.NODE || process.env.npm_node_execpath || "node";
+  const runtimePath = requireFromPlugin.resolve("kokoro-js");
+  const transformersPath = requireFromPlugin.resolve("@huggingface/transformers", {
+    paths: [path.dirname(runtimePath)],
+  });
+
   return await new Promise<boolean>((resolve) => {
-    const child = spawn(process.execPath, ["--input-type=module", "-e", probeScript], {
+    const child = spawn(nodeExecutable, ["--input-type=module", "-e", probeScript], {
       env: {
         ...process.env,
         OPENCODE_TTS_PROBE_CACHE_DIR: config.cacheDir,
         OPENCODE_TTS_PROBE_DEVICE: device,
         OPENCODE_TTS_PROBE_DTYPE: config.dtype,
         OPENCODE_TTS_PROBE_MODEL: config.model,
+        OPENCODE_TTS_PROBE_RUNTIME_PATH: runtimePath,
+        OPENCODE_TTS_PROBE_TRANSFORMERS_PATH: transformersPath,
       },
       stdio: ["ignore", "ignore", "pipe"],
     });
