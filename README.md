@@ -29,7 +29,7 @@ If GPU libraries are missing, the plugin falls back to CPU.
 If published to npm:
 
 ```bash
-opencode plugin opencode-voice-tts
+opencode plugin @semirhuduti/opencode-tts-voice
 ```
 
 For local development right now, point OpenCode at this package from your config.
@@ -168,3 +168,19 @@ Environment variables are still supported for compatibility and ad hoc overrides
 - No `/api/speech/*` endpoints are used.
 - No standalone TTS server is required.
 - On systems with broken CUDA installs, the plugin probes GPU support and falls back to CPU safely.
+
+## Publishing
+
+This repository is set up to publish compiled output from `dist/`.
+
+Build the package:
+
+```bash
+npm run build
+```
+
+Publish after you have logged into npm:
+
+```bash
+npm publish --access public
+```
