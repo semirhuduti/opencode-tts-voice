@@ -1,10 +1,11 @@
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Message, Part } from "@opencode-ai/sdk/v2"
 import { spawn, type ChildProcess } from "node:child_process"
+import * as fsSync from "node:fs"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { KV_ENABLED, PLAYER_DEFAULT_ARGS } from "./voice-constants.js"
+import { KV_ENABLED, PLAYER_CANDIDATES, PLAYER_DEFAULT_ARGS } from "./voice-constants.js"
 import { trimSilence, wavFromFloat32 } from "./voice-audio.js"
 import { KokoroRuntime } from "./voice-kokoro.js"
 import { drainStreamChunks, prepareSpeechText, splitPlaybackText } from "./voice-text.js"
@@ -48,6 +49,30 @@ function toBasePlayer(playerBin: string) {
   return path.basename(playerBin).toLowerCase()
 }
 
+function isExecutable(file: string) {
+  try {
+    fsSync.accessSync(file, fsSync.constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function resolveExecutable(playerBin: string) {
+  if (playerBin.includes(path.sep)) {
+    return isExecutable(playerBin) ? playerBin : undefined
+  }
+
+  const envPath = process.env.PATH ?? ""
+  for (const dir of envPath.split(path.delimiter)) {
+    if (!dir) continue
+    const candidate = path.join(dir, playerBin)
+    if (isExecutable(candidate)) return candidate
+  }
+
+  return undefined
+}
+
 export class VoiceController {
   private readonly listeners = new Set<Listener>()
   private readonly messages = new Map<string, Message>()
@@ -66,6 +91,7 @@ export class VoiceController {
   private queueID = 0
   private epoch = 0
   private lastToastAt = 0
+  private resolvedPlayer?: string
 
   private state: VoiceState
 
@@ -487,14 +513,35 @@ export class VoiceController {
   }
 
   private buildPlayerArgs(file: string) {
-    const base = toBasePlayer(this.config.playerBin)
+    const playerBin = this.resolvedPlayer ?? this.config.playerBin
+    const base = toBasePlayer(playerBin)
     const defaults = PLAYER_DEFAULT_ARGS[base] ?? []
     return [...defaults, ...this.config.playerArgs, file]
   }
 
+  private resolvePlayerBin() {
+    if (this.resolvedPlayer) return this.resolvedPlayer
+
+    const preferred = this.config.playerBin.trim()
+    const candidates = preferred && preferred !== "auto" ? [preferred, ...PLAYER_CANDIDATES] : [...PLAYER_CANDIDATES]
+
+    for (const candidate of candidates) {
+      const resolved = resolveExecutable(candidate)
+      if (!resolved) continue
+      this.resolvedPlayer = resolved
+      this.setState({ backend: toBasePlayer(resolved) })
+      return resolved
+    }
+
+    throw new Error(
+      `No supported audio player found. Install one of: ${PLAYER_CANDIDATES.join(", ")}`,
+    )
+  }
+
   private async playFile(file: string, current: CurrentTask) {
+    const playerBin = this.resolvePlayerBin()
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(this.config.playerBin, this.buildPlayerArgs(file), {
+      const child = spawn(playerBin, this.buildPlayerArgs(file), {
         stdio: ["ignore", "ignore", "pipe"],
       })
 
@@ -520,7 +567,7 @@ export class VoiceController {
           done(resolve)
           return
         }
-        done(() => reject(new Error(`${this.config.playerBin} exited with code ${code ?? "unknown"}`)))
+        done(() => reject(new Error(`${toBasePlayer(playerBin)} exited with code ${code ?? "unknown"}`)))
       })
     })
   }

@@ -11,7 +11,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   dtype: "q8",
   model: DEFAULT_MODEL,
   cacheDir: undefined,
-  playerBin: "ffplay",
+  playerBin: "auto",
   playerArgs: [],
   readResponses: true,
   announceOnIdle: false,
@@ -33,4 +33,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
 export const PLAYER_DEFAULT_ARGS: Record<string, string[]> = {
   ffplay: ["-nodisp", "-autoexit", "-loglevel", "error"],
   mpv: ["--no-terminal", "--really-quiet", "--force-window=no", "--audio-display=no", "--keep-open=no"],
+  paplay: [],
+  aplay: ["-q"],
 }
+
+export const PLAYER_CANDIDATES = ["ffplay", "mpv", "paplay", "aplay"] as const

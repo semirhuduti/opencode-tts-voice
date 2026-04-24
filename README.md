@@ -11,14 +11,14 @@ Still wip, make sure to install sharp versions if you want a bit more reliabilit
 - reads assistant responses aloud while they stream in the TUI
 - adds TUI shortcuts for pause, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
-- uses local playback via `ffplay` or `mpv`
+- uses local playback via `ffplay`, `mpv`, `paplay`, or `aplay`
 - prefers GPU-capable execution when available and falls back to CPU automatically
 
 ## Requirements
 
 - Linux, macOS, or Windows
 - OpenCode with plugin support
-- a local `ffplay` or `mpv` command available on the system
+- one of `ffplay`, `mpv`, `paplay`, or `aplay` available on the system
 
 Optional:
 
@@ -73,7 +73,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `dtype` | string | `q8` | Model precision. Accepted values: `fp32`, `fp16`, `q4`, `q4f16`, `q8`. |
 | `model` | string | `onnx-community/Kokoro-82M-v1.0-ONNX` | Model ID or compatible local model path. |
 | `cacheDir` | string | Transformers.js default cache | Directory used for model downloads and cache data. |
-| `playerBin` | string | `ffplay` | Playback backend command. Supported values are `ffplay` and `mpv`. |
+| `playerBin` | string | `auto` | Playback backend command. `auto` picks the first installed backend from `ffplay`, `mpv`, `paplay`, or `aplay`. |
 | `playerArgs` | string or string[] | `[]` | Additional arguments passed to the playback backend helper. |
 | `readResponses` | boolean | `true` | Speak streamed assistant responses. |
 | `announceOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
@@ -111,8 +111,11 @@ This package is intended to be published as a public scoped npm package.
 
 Supported backends:
 
-- `ffplay` (default)
+- `auto` (default)
+- `ffplay`
 - `mpv`
+- `paplay`
+- `aplay`
 
 Example backend override:
 
