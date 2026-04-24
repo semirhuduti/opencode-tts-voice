@@ -6,7 +6,10 @@ import { createMemo, createSignal, onCleanup } from "solid-js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { VoiceController } from "./voice-controller.js"
+import { createLogger } from "./voice-log.js"
 import type { VoicePluginOptions } from "./voice-types.js"
+
+const log = createLogger("plugin")
 
 function ShortcutManager(props: {
   api: TuiPluginApi
@@ -17,6 +20,7 @@ function ShortcutManager(props: {
     if (props.api.ui.dialog.open) return
 
     if (props.keybinds.match("toggle", event)) {
+      log.info("keyboard toggle", { key: props.keybinds.print("toggle") })
       event.preventDefault()
       event.stopPropagation()
       props.api.command.trigger("tts.toggle")
@@ -24,6 +28,7 @@ function ShortcutManager(props: {
     }
 
     if (props.keybinds.match("pause", event)) {
+      log.info("keyboard pause", { key: props.keybinds.print("pause") })
       event.preventDefault()
       event.stopPropagation()
       props.api.command.trigger("tts.play-pause")
@@ -31,6 +36,7 @@ function ShortcutManager(props: {
     }
 
     if (props.keybinds.match("skipLatest", event)) {
+      log.info("keyboard latest", { key: props.keybinds.print("skipLatest") })
       event.preventDefault()
       event.stopPropagation()
       props.api.command.trigger("tts.latest")
@@ -72,6 +78,12 @@ function ShortcutHint(props: {
 
 const tui: TuiPlugin = async (api, options) => {
   const config = resolveVoiceConfig(options as VoicePluginOptions | undefined)
+  log.info("tui init", {
+    route: api.route.current.name,
+    playerBin: config.playerBin,
+    device: config.device,
+    readResponses: config.readResponses,
+  })
   const controller = new VoiceController(api, config)
   const shortcutKeys = api.keybind.create(
     {
@@ -89,6 +101,7 @@ const tui: TuiPlugin = async (api, options) => {
       category: "Voice",
       keybind: shortcutKeys.get("toggle"),
       onSelect: () => {
+        log.info("command selected", { command: "tts.toggle" })
         void controller.toggleEnabled()
       },
     },
@@ -98,6 +111,7 @@ const tui: TuiPlugin = async (api, options) => {
       category: "Voice",
       keybind: shortcutKeys.get("pause"),
       onSelect: () => {
+        log.info("command selected", { command: "tts.play-pause" })
         void controller.togglePlayback()
       },
     },
@@ -107,6 +121,7 @@ const tui: TuiPlugin = async (api, options) => {
       category: "Voice",
       keybind: shortcutKeys.get("skipLatest"),
       onSelect: () => {
+        log.info("command selected", { command: "tts.latest" })
         void controller.replayLatest()
       },
     },
@@ -126,7 +141,10 @@ const tui: TuiPlugin = async (api, options) => {
     },
   })
 
-  api.lifecycle.onDispose(() => controller.dispose())
+  api.lifecycle.onDispose(() => {
+    log.info("tui dispose")
+    return controller.dispose()
+  })
 }
 
 const plugin: TuiPluginModule & { id: string } = {

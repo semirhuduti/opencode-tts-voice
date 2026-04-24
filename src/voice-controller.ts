@@ -8,6 +8,7 @@ import * as path from "node:path"
 import { KV_ENABLED, PLAYER_CANDIDATES, PLAYER_DEFAULT_ARGS } from "./voice-constants.js"
 import { trimSilence, wavFromFloat32 } from "./voice-audio.js"
 import { KokoroRuntime } from "./voice-kokoro.js"
+import { createLogger } from "./voice-log.js"
 import { drainStreamChunks, prepareSpeechText, splitPlaybackText } from "./voice-text.js"
 import type { SpeechSource, VoiceConfig, VoiceState } from "./voice-types.js"
 
@@ -74,6 +75,7 @@ function resolveExecutable(playerBin: string) {
 }
 
 export class VoiceController {
+  private readonly log = createLogger("controller")
   private readonly listeners = new Set<Listener>()
   private readonly messages = new Map<string, Message>()
   private readonly latestBySession = new Map<string, string>()
@@ -109,7 +111,15 @@ export class VoiceController {
       error: undefined,
     }
 
-    this.runtime = new KokoroRuntime(config, (status) => this.setState(status))
+    this.runtime = new KokoroRuntime(config, (status) => this.setState(status), createLogger("kokoro"))
+
+    this.log.info("init", {
+      enabled: this.state.enabled,
+      device: this.config.device,
+      playerBin: this.config.playerBin,
+      readResponses: this.config.readResponses,
+      announceOnIdle: this.config.announceOnIdle,
+    })
 
     this.cleanup.push(
       api.event.on("message.updated", (event) => this.onMessageUpdated(event.properties.info)),
@@ -134,6 +144,7 @@ export class VoiceController {
 
   async toggleEnabled() {
     const next = !this.state.enabled
+    this.log.info("toggle enabled", { next })
     this.api.kv.set(KV_ENABLED, next)
     if (!next) {
       await this.resetQueue(false)
@@ -149,6 +160,13 @@ export class VoiceController {
   }
 
   async togglePlayback(sessionID?: string) {
+    this.log.info("toggle playback", {
+      sessionID: sessionID ?? this.activeSessionID(),
+      paused: this.state.paused,
+      busy: this.state.busy,
+      queueLength: this.queue.length,
+      hasCurrent: Boolean(this.current),
+    })
     if (!this.state.enabled) {
       this.api.ui.toast({ variant: "warning", message: "Speech is disabled" })
       return
@@ -170,6 +188,7 @@ export class VoiceController {
   }
 
   async replayLatest(sessionID?: string) {
+    this.log.info("replay latest requested", { sessionID: sessionID ?? this.activeSessionID() })
     if (!this.state.enabled) {
       this.api.ui.toast({ variant: "warning", message: "Speech is disabled" })
       return false
@@ -183,6 +202,7 @@ export class VoiceController {
 
     const latest = this.latestBySession.get(activeSessionID) ?? this.collectLatestMessageText(activeSessionID)
     if (!latest) {
+      this.log.warn("replay latest unavailable", { sessionID: activeSessionID })
       this.api.ui.toast({ variant: "warning", message: "No assistant message available" })
       return false
     }
@@ -200,6 +220,11 @@ export class VoiceController {
     }
 
     this.notify()
+    this.log.info("replay latest queued", {
+      sessionID: activeSessionID,
+      queueLength: this.queue.length,
+      textLength: latest.length,
+    })
     this.api.ui.toast({ variant: "info", message: "Replaying latest assistant message" })
     return true
   }
@@ -216,6 +241,7 @@ export class VoiceController {
 
     await this.resetQueue(false)
     this.notify()
+    this.log.info("dispose")
 
     const dir = this.tmpDir
     this.tmpDir = undefined
@@ -228,12 +254,15 @@ export class VoiceController {
 
   private setState(patch: Partial<VoiceState>) {
     let changed = false
+    const changedFields: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(patch) as Array<[keyof VoiceState, VoiceState[keyof VoiceState]]>) {
       if (this.state[key] === value) continue
       ;(this.state[key] as VoiceState[keyof VoiceState]) = value
+      changedFields[key] = value
       changed = true
     }
     if (!changed) return
+    this.log.info("state changed", changedFields)
     for (const listener of this.listeners) listener()
   }
 
@@ -248,9 +277,18 @@ export class VoiceController {
     this.loopStarted = true
 
     void (async () => {
+      this.log.info("queue loop started")
       while (!this.disposed) {
         const item = await this.takeNextItem()
         if (!item || this.disposed) continue
+
+        this.log.info("queue item start", {
+          itemID: item.id,
+          source: item.source,
+          textLength: item.text.length,
+          pauseMs: item.pauseMs,
+          queueRemaining: this.queue.length,
+        })
 
         const current: CurrentTask = {
           item,
@@ -265,23 +303,38 @@ export class VoiceController {
         try {
           const generated = await this.runtime.generate(item.text)
           if (this.shouldRequeue(current)) {
+            this.log.info("queue item requeued after generate", { itemID: item.id })
             this.queue.unshift(item)
             continue
           }
-          if (this.isStale(item)) continue
+          if (this.isStale(item)) {
+            this.log.warn("queue item stale after generate", { itemID: item.id, epoch: item.epoch, currentEpoch: this.epoch })
+            continue
+          }
 
           file = await this.writeAudioFile(generated.audio, generated.sampleRate)
           current.phase = "play"
           await this.playFile(file, current)
 
           if (this.shouldRequeue(current)) {
+            this.log.info("queue item requeued after playback", { itemID: item.id })
             this.queue.unshift(item)
             continue
           }
-          if (this.isStale(item)) continue
+          if (this.isStale(item)) {
+            this.log.warn("queue item stale after playback", { itemID: item.id, epoch: item.epoch, currentEpoch: this.epoch })
+            continue
+          }
 
           if (item.pauseMs > 0) await this.sleep(item.pauseMs)
+          this.log.info("queue item complete", { itemID: item.id })
         } catch (error) {
+          this.log.error("queue item failed", {
+            itemID: item.id,
+            source: item.source,
+            phase: current.phase,
+            error: formatError(error),
+          })
           if (!current.interrupted || !current.requeue) {
             await this.handleRuntimeError(error)
           }
@@ -323,6 +376,11 @@ export class VoiceController {
   }
 
   private pauseQueue() {
+    this.log.info("pause queue", {
+      queueLength: this.queue.length,
+      hasCurrent: Boolean(this.current),
+      currentPhase: this.current?.phase,
+    })
     this.setState({ paused: true })
     if (!this.current) return
     this.current.interrupted = true
@@ -331,11 +389,18 @@ export class VoiceController {
   }
 
   private resumeQueue() {
+    this.log.info("resume queue", { queueLength: this.queue.length })
     this.setState({ paused: false })
     this.notify()
   }
 
   private async resetQueue(requeueCurrent: boolean) {
+    this.log.info("reset queue", {
+      requeueCurrent,
+      queueLength: this.queue.length,
+      hasCurrent: Boolean(this.current),
+      nextEpoch: this.epoch + 1,
+    })
     this.epoch += 1
     this.queue.length = 0
     if (this.current) {
@@ -356,18 +421,36 @@ export class VoiceController {
 
   private enqueuePreparedChunk(text: string, pauseMs: number, source: SpeechSource) {
     if (!text.trim()) return
-    this.queue.push({
+    const item = {
       id: this.queueID++,
       epoch: this.epoch,
       text,
       pauseMs,
       source,
+    }
+    this.queue.push(item)
+    this.log.info("chunk enqueued", {
+      itemID: item.id,
+      source,
+      epoch: item.epoch,
+      textLength: text.length,
+      pauseMs,
+      queueLength: this.queue.length,
+      preview: text.slice(0, 80),
     })
   }
 
   private onMessageUpdated(message: Message) {
+    const completed = "completed" in message.time && Boolean(message.time.completed)
     this.messages.set(message.id, message)
-    if (message.role !== "assistant" || message.summary || !message.time.completed) return
+    this.log.info("message updated", {
+      messageID: message.id,
+      sessionID: message.sessionID,
+      role: message.role,
+      completed,
+      summary: Boolean(message.summary),
+    })
+    if (message.role !== "assistant" || message.summary || !completed) return
     this.scheduleLatestRefresh(message.sessionID, message.id)
   }
 
@@ -375,7 +458,18 @@ export class VoiceController {
     if (!this.config.readResponses || event.field !== "text") return
 
     const message = this.lookupMessage(event.sessionID, event.messageID)
-    if (!message || message.role !== "assistant" || message.summary || !this.state.enabled) return
+    if (!message || message.role !== "assistant" || message.summary || !this.state.enabled) {
+      this.log.warn("stream delta ignored", {
+        sessionID: event.sessionID,
+        messageID: event.messageID,
+        partID: event.partID,
+        hasMessage: Boolean(message),
+        role: message?.role,
+        summary: Boolean(message?.summary),
+        enabled: this.state.enabled,
+      })
+      return
+    }
 
     const stream = this.streams.get(event.partID) ?? {
       sessionID: event.sessionID,
@@ -389,6 +483,15 @@ export class VoiceController {
 
     const drained = drainStreamChunks(stream.buffer, this.config, false)
     stream.buffer = drained.rest
+    if (drained.chunks.length > 0) {
+      this.log.info("stream chunks drained", {
+        sessionID: event.sessionID,
+        messageID: event.messageID,
+        partID: event.partID,
+        chunkCount: drained.chunks.length,
+        restLength: drained.rest.length,
+      })
+    }
     for (const chunk of drained.chunks) {
       this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "stream")
     }
@@ -401,7 +504,17 @@ export class VoiceController {
     if (part.type !== "text" || part.synthetic || part.ignored) return
 
     const message = this.lookupMessage(part.sessionID, part.messageID)
-    if (!message || message.role !== "assistant" || message.summary) return
+    if (!message || message.role !== "assistant" || message.summary) {
+      this.log.warn("part update ignored", {
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        hasMessage: Boolean(message),
+        role: message?.role,
+        summary: Boolean(message?.summary),
+      })
+      return
+    }
 
     const text = typeof part.text === "string" ? part.text : ""
     const stream = this.streams.get(part.id) ?? {
@@ -419,6 +532,17 @@ export class VoiceController {
     if (this.state.enabled && this.config.readResponses) {
       const drained = drainStreamChunks(stream.buffer, this.config, Boolean(part.time?.end))
       stream.buffer = drained.rest
+      if (drained.chunks.length > 0 || part.time?.end) {
+        this.log.info("part updated", {
+          sessionID: part.sessionID,
+          messageID: part.messageID,
+          partID: part.id,
+          textLength: text.length,
+          chunkCount: drained.chunks.length,
+          restLength: drained.rest.length,
+          ended: Boolean(part.time?.end),
+        })
+      }
       for (const chunk of drained.chunks) {
         this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "stream")
       }
@@ -426,6 +550,12 @@ export class VoiceController {
     }
 
     if (part.time?.end) {
+      this.log.info("part completed", {
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        finalTextLength: text.length,
+      })
       this.streams.delete(part.id)
       this.scheduleLatestRefresh(part.sessionID, part.messageID)
       return
@@ -439,6 +569,8 @@ export class VoiceController {
     const active = this.activeSessionID()
     if (active && active !== sessionID) return
 
+    this.log.info("session idle announcement", { sessionID })
+
     for (const chunk of splitPlaybackText(this.config.idleMessage, this.config)) {
       this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "idle")
     }
@@ -449,15 +581,24 @@ export class VoiceController {
     const cached = this.messages.get(messageID)
     if (cached) return cached
 
-    return this.api.state.session.messages(sessionID).find((message) => message.id === messageID)
+    const resolved = this.api.state.session.messages(sessionID).find((message) => message.id === messageID)
+    if (!resolved) {
+      this.log.warn("message lookup failed", { sessionID, messageID })
+    }
+    return resolved
   }
 
   private scheduleLatestRefresh(sessionID: string, messageID: string) {
+    this.log.info("schedule latest refresh", { sessionID, messageID })
     const timer = setTimeout(() => {
       this.timers.delete(timer)
       const next = this.collectLatestMessageText(sessionID, messageID)
-      if (!next) return
+      if (!next) {
+        this.log.warn("latest refresh empty", { sessionID, messageID })
+        return
+      }
       this.latestBySession.set(sessionID, next)
+      this.log.info("latest refresh stored", { sessionID, messageID, textLength: next.length })
     }, 0)
     this.timers.add(timer)
   }
@@ -494,6 +635,12 @@ export class VoiceController {
       .join(" ")
 
     const prepared = prepareSpeechText(text, this.config.maxTextLength)
+    this.log.info("assistant text collected", {
+      messageID,
+      partCount: parts.length,
+      rawLength: text.length,
+      preparedLength: prepared.length,
+    })
     return prepared || undefined
   }
 
@@ -502,14 +649,23 @@ export class VoiceController {
     const trimmed = trimSilence(audio, sampleRate, this.config.trimSilenceThreshold, this.config.leadingAudioPadMs)
     const file = path.join(dir, `${Date.now()}-${this.queueID}.wav`)
     await fs.writeFile(file, wavFromFloat32(trimmed, sampleRate))
+    this.log.info("audio file written", {
+      file,
+      sampleRate,
+      inputSamples: audio.length,
+      outputSamples: trimmed.length,
+    })
     return file
   }
 
   private async ensureTempDir() {
     if (!this.tmpDir) {
       this.tmpDir = fs.mkdtemp(path.join(os.tmpdir(), "opencode-tts-voice-"))
+      this.log.info("temp dir requested")
     }
-    return this.tmpDir
+    const dir = await this.tmpDir
+    this.log.info("temp dir ready", { dir })
+    return dir
   }
 
   private buildPlayerArgs(file: string) {
@@ -524,12 +680,15 @@ export class VoiceController {
 
     const preferred = this.config.playerBin.trim()
     const candidates = preferred && preferred !== "auto" ? [preferred, ...PLAYER_CANDIDATES] : [...PLAYER_CANDIDATES]
+    this.log.info("resolve player start", { preferred, candidates })
 
     for (const candidate of candidates) {
       const resolved = resolveExecutable(candidate)
+      this.log.info("resolve player candidate", { candidate, resolved: resolved ?? null })
       if (!resolved) continue
       this.resolvedPlayer = resolved
       this.setState({ backend: toBasePlayer(resolved) })
+      this.log.info("resolve player success", { playerBin: resolved, backend: toBasePlayer(resolved) })
       return resolved
     }
 
@@ -541,12 +700,24 @@ export class VoiceController {
   private async playFile(file: string, current: CurrentTask) {
     const playerBin = this.resolvePlayerBin()
     await new Promise<void>((resolve, reject) => {
+      const args = this.buildPlayerArgs(file)
+      this.log.info("playback spawn", {
+        itemID: current.item.id,
+        playerBin,
+        args,
+        file,
+      })
       const child = spawn(playerBin, this.buildPlayerArgs(file), {
         stdio: ["ignore", "ignore", "pipe"],
       })
 
       current.child = child
       let settled = false
+      let stderr = ""
+
+      child.stderr?.on("data", (chunk: Buffer | string) => {
+        stderr += String(chunk)
+      })
 
       const done = (callback: () => void) => {
         if (settled) return
@@ -555,10 +726,24 @@ export class VoiceController {
       }
 
       child.once("error", (error) => {
+        this.log.error("playback process error", {
+          itemID: current.item.id,
+          playerBin,
+          error: formatError(error),
+          stderr: stderr || undefined,
+        })
         done(() => reject(error))
       })
 
       child.once("exit", (code, signal) => {
+        this.log.info("playback process exit", {
+          itemID: current.item.id,
+          playerBin,
+          code,
+          signal,
+          interrupted: current.interrupted,
+          stderr: stderr.trim() || undefined,
+        })
         if (current.interrupted && (signal || code !== 0)) {
           done(resolve)
           return
@@ -574,6 +759,7 @@ export class VoiceController {
 
   private stopChild(child?: ChildProcess) {
     if (!child || child.killed) return
+    this.log.info("stop child", { pid: child.pid ?? null })
     child.kill("SIGTERM")
     const timer = setTimeout(() => {
       this.timers.delete(timer)
@@ -584,6 +770,7 @@ export class VoiceController {
 
   private async handleRuntimeError(error: unknown) {
     const message = formatError(error)
+    this.log.error("runtime error", { error: message })
     this.setState({ error: message })
 
     if (isMissingBinary(error)) {

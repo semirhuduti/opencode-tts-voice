@@ -1,4 +1,5 @@
 import type { VoiceConfig, VoiceState } from "./voice-types.js"
+import type { VoiceLogger } from "./voice-log.js"
 
 type TransformDevice = "auto" | "cpu" | "gpu" | "cuda" | "dml" | "wasm" | "webgpu"
 
@@ -47,13 +48,25 @@ export class KokoroRuntime {
   constructor(
     private readonly config: VoiceConfig,
     private readonly onStatus: (status: RuntimeStatus) => void,
+    private readonly logger: VoiceLogger,
   ) {}
 
   async generate(text: string) {
+    this.logger.info("generate start", {
+      textLength: text.length,
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })
     const runtime = await this.load()
     const audio = await runtime.tts.generate(text, {
       voice: this.config.voice,
       speed: this.config.speed,
+    })
+    this.logger.info("generate complete", {
+      textLength: text.length,
+      sampleRate: audio.sampling_rate,
+      samples: audio.data.length,
+      device: runtime.device,
     })
     return {
       audio: audio.data,
@@ -68,10 +81,12 @@ export class KokoroRuntime {
     this.loading = this.create()
       .then((runtime) => {
         this.loaded = runtime
+        this.logger.info("runtime ready", { device: runtime.device })
         return runtime
       })
       .catch((error) => {
         this.loading = undefined
+        this.logger.error("runtime load failed", { error: formatError(error) })
         this.onStatus({ error: formatError(error) })
         throw error
       })
@@ -80,6 +95,11 @@ export class KokoroRuntime {
   }
 
   private async create(): Promise<LoadedRuntime> {
+    this.logger.info("runtime import start", {
+      model: this.config.model,
+      dtype: this.config.dtype,
+      preferredDevice: this.config.device,
+    })
     const { KokoroTTS } = await import("kokoro-js")
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]
@@ -95,8 +115,10 @@ export class KokoroRuntime {
 
     let lastError: unknown
     for (const device of unique(candidateDevices(this.config.device))) {
+      this.logger.info("runtime init attempt", { device })
       try {
         const tts = await loadKokoro(device)
+        this.logger.info("runtime init success", { device })
         this.onStatus({ device, error: undefined })
         return {
           tts: {
@@ -112,6 +134,10 @@ export class KokoroRuntime {
         }
       } catch (error) {
         lastError = error
+        this.logger.warn("runtime init failed", {
+          device,
+          error: formatError(error),
+        })
       }
     }
 
