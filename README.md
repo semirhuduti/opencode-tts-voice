@@ -4,8 +4,7 @@ Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support fo
 
 ## Features
 
-- speaks text through the `speak` tool
-- reads assistant responses aloud while they stream
+- reads assistant responses aloud while they stream in the TUI
 - adds TUI shortcuts for pause, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
 - supports CPU and GPU execution
@@ -32,9 +31,9 @@ Optional:
 opencode plugin @semirhuduti/opencode-tts-voice --global
 ```
 
-OpenCode loads the server entry automatically.
+OpenCode loads the package automatically.
 
-For TUI shortcut support, OpenCode uses the package `./tui` entrypoint when running inside the terminal UI.
+The voice runtime lives in the package `./tui` entrypoint and runs inside the terminal UI, which gives the plugin proper disposal handling on shutdown.
 
 ## Config
 
