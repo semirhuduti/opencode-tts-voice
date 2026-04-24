@@ -148,6 +148,21 @@ export class VoiceController {
     return { ...this.state }
   }
 
+  async preloadRuntime() {
+    if (!this.state.enabled) {
+      this.log.info("runtime preload skipped", { enabled: false })
+      return
+    }
+
+    this.log.info("runtime preload start")
+    try {
+      const runtime = await this.runtime.preload()
+      this.log.info("runtime preload complete", { device: runtime.device })
+    } catch (error) {
+      await this.handleRuntimeError(error)
+    }
+  }
+
   async toggleEnabled() {
     const next = !this.state.enabled
     this.log.info("toggle enabled", { next })

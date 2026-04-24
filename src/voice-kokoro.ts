@@ -51,30 +51,7 @@ export class KokoroRuntime {
     private readonly logger: VoiceLogger,
   ) {}
 
-  async generate(text: string) {
-    this.logger.info("generate start", {
-      textLength: text.length,
-      voice: this.config.voice,
-      speed: this.config.speed,
-    })
-    const runtime = await this.load()
-    const audio = await runtime.tts.generate(text, {
-      voice: this.config.voice,
-      speed: this.config.speed,
-    })
-    this.logger.info("generate complete", {
-      textLength: text.length,
-      sampleRate: audio.sampling_rate,
-      samples: audio.data.length,
-      device: runtime.device,
-    })
-    return {
-      audio: audio.data,
-      sampleRate: audio.sampling_rate,
-    }
-  }
-
-  private async load() {
+  async preload(): Promise<LoadedRuntime> {
     if (this.loaded) return this.loaded
     if (this.loading) return this.loading
 
@@ -92,6 +69,29 @@ export class KokoroRuntime {
       })
 
     return this.loading
+  }
+
+  async generate(text: string) {
+    this.logger.info("generate start", {
+      textLength: text.length,
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })
+    const runtime = await this.preload()
+    const audio = await runtime.tts.generate(text, {
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })
+    this.logger.info("generate complete", {
+      textLength: text.length,
+      sampleRate: audio.sampling_rate,
+      samples: audio.data.length,
+      device: runtime.device,
+    })
+    return {
+      audio: audio.data,
+      sampleRate: audio.sampling_rate,
+    }
   }
 
   private async create(): Promise<LoadedRuntime> {
