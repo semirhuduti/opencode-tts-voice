@@ -10,28 +10,30 @@ import type { VoicePluginOptions } from "./voice-types.js"
 
 function ShortcutManager(props: {
   api: TuiPluginApi
-  controller: VoiceController
   keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
 }) {
   useKeyboard((event) => {
+    if (event.defaultPrevented) return
+    if (props.api.ui.dialog.open) return
+
     if (props.keybinds.match("toggle", event)) {
       event.preventDefault()
       event.stopPropagation()
-      void props.controller.toggleEnabled()
+      props.api.command.trigger("tts.toggle")
       return
     }
 
     if (props.keybinds.match("pause", event)) {
       event.preventDefault()
       event.stopPropagation()
-      void props.controller.togglePlayback()
+      props.api.command.trigger("tts.play-pause")
       return
     }
 
     if (props.keybinds.match("skipLatest", event)) {
       event.preventDefault()
       event.stopPropagation()
-      void props.controller.replayLatest()
+      props.api.command.trigger("tts.latest")
     }
   })
 
@@ -71,7 +73,7 @@ function ShortcutHint(props: {
 const tui: TuiPlugin = async (api, options) => {
   const config = resolveVoiceConfig(options as VoicePluginOptions | undefined)
   const controller = new VoiceController(api, config)
-  const keybinds = api.keybind.create(
+  const shortcutKeys = api.keybind.create(
     {
       pause: config.shortcuts.pause,
       skipLatest: config.shortcuts.skipLatest,
@@ -85,7 +87,7 @@ const tui: TuiPlugin = async (api, options) => {
       title: "Toggle speech",
       value: "tts.toggle",
       category: "Voice",
-      keybind: keybinds.get("toggle"),
+      keybind: shortcutKeys.get("toggle"),
       onSelect: () => {
         void controller.toggleEnabled()
       },
@@ -94,7 +96,7 @@ const tui: TuiPlugin = async (api, options) => {
       title: "Play or pause speech",
       value: "tts.play-pause",
       category: "Voice",
-      keybind: keybinds.get("pause"),
+      keybind: shortcutKeys.get("pause"),
       onSelect: () => {
         void controller.togglePlayback()
       },
@@ -103,7 +105,7 @@ const tui: TuiPlugin = async (api, options) => {
       title: "Replay latest assistant message",
       value: "tts.latest",
       category: "Voice",
-      keybind: keybinds.get("skipLatest"),
+      keybind: shortcutKeys.get("skipLatest"),
       onSelect: () => {
         void controller.replayLatest()
       },
@@ -113,13 +115,13 @@ const tui: TuiPlugin = async (api, options) => {
   api.slots.register({
     slots: {
       app() {
-        return <ShortcutManager api={api} controller={controller} keybinds={keybinds} />
+        return <ShortcutManager api={api} keybinds={shortcutKeys} />
       },
       home_prompt_right() {
-        return <ShortcutHint api={api} controller={controller} keybinds={keybinds} />
+        return <ShortcutHint api={api} controller={controller} keybinds={shortcutKeys} />
       },
       session_prompt_right() {
-        return <ShortcutHint api={api} controller={controller} keybinds={keybinds} />
+        return <ShortcutHint api={api} controller={controller} keybinds={shortcutKeys} />
       },
     },
   })
