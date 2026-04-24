@@ -1,11 +1,12 @@
 # @semirhuduti/opencode-tts-voice
 
-Voice output plugin for OpenCode powered by Kokoro.
+Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support for controlling playback.
 
 ## Features
 
 - speaks text through the `speak` tool
 - reads assistant responses aloud while they stream
+- adds TUI shortcuts for pause, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
 - supports CPU and GPU execution
 - plays audio locally with the system audio player
@@ -31,6 +32,10 @@ Optional:
 opencode plugin @semirhuduti/opencode-tts-voice --global
 ```
 
+OpenCode loads the server entry automatically.
+
+For TUI shortcut support, OpenCode uses the package `./tui` entrypoint when running inside the terminal UI.
+
 ## Config
 
 Example `~/.config/opencode/opencode.json`:
@@ -44,12 +49,19 @@ Example `~/.config/opencode/opencode.json`:
       {
         "voice": "am_adam",
         "speed": 1.1,
-        "dtype": "q4"
+        "dtype": "q4",
+        "shortcuts": {
+          "pause": "f6",
+          "skipLatest": "f7",
+          "toggle": "f8"
+        }
       }
     ]
   ]
 }
 ```
+
+The plugin works with defaults, so the `shortcuts` block is optional unless you want custom keybinds.
 
 ## Options
 
@@ -73,6 +85,28 @@ Example `~/.config/opencode/opencode.json`:
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `defaultChunkPauseMs` | number | `50` | Pause added after normal chunks. |
 | `clauseChunkPauseMs` | number | `80` | Pause added after clause-ending punctuation. |
+| `shortcuts.pause` | string | `f6` | TUI shortcut for stopping the current voice playback. |
+| `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
+| `shortcuts.toggle` | string | `f8` | TUI shortcut for toggling automatic voice playback on or off. |
+
+## Shortcuts
+
+Default TUI shortcuts:
+
+- `f6`: pause current playback
+- `f7`: replay the latest assistant message
+- `f8`: toggle voice on or off
+
+When the TUI entrypoint is active, the plugin also renders a small shortcut hint near the chat prompt.
+
+## Publish Notes
+
+Published package entrypoints:
+
+- `.`: server plugin runtime
+- `./tui`: TUI plugin entrypoint for OpenCode terminal UI
+
+This package is intended to be published as a public scoped npm package.
 
 ## Voices
 

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -12,6 +13,7 @@ type MessageRole = "assistant" | "user";
 type RuntimeDevice = "cpu" | "cuda" | "dml" | "gpu" | "wasm" | "webgpu" | null;
 type RuntimeDtype = "fp32" | "fp16" | "q4" | "q4f16" | "q8";
 type SpeakResult = "failed" | "skipped" | "spoken";
+type DebugLog = (message: string, data?: Record<string, unknown>) => void;
 
 type MessageInfo = {
   finish?: string;
@@ -74,9 +76,25 @@ type PluginEvent =
   | MessageRemovedEvent
   | MessageUpdatedEvent
   | SessionIdleEvent
+  | TuiCommandExecuteEvent
+  | TuiSessionSelectEvent
   | {
       type: string;
     };
+
+type TuiCommandExecuteEvent = {
+  properties: {
+    command: string;
+  };
+  type: "tui.command.execute";
+};
+
+type TuiSessionSelectEvent = {
+  properties: {
+    sessionID: string;
+  };
+  type: "tui.session.select";
+};
 
 type VoicePluginOptions = {
   announceOnIdle?: boolean;
@@ -202,6 +220,7 @@ interface TransformersModule {
 interface PlaybackController {
   cancelled: boolean;
   playerInput?: ReturnType<typeof createPcmPlayer>["stdin"];
+  playerPid?: number;
   playerProcess?: ChildProcess;
 }
 
@@ -221,6 +240,11 @@ const LEADING_AUDIO_PAD_MS = 12;
 const DEFAULT_CHUNK_PAUSE_MS = 50;
 const CLAUSE_CHUNK_PAUSE_MS = 80;
 const SENTENCE_CHUNK_PAUSE_MS = 140;
+const CONTROL_COMMANDS = {
+  skipLatest: "voice.skip-latest",
+  stop: "voice.stop",
+  toggle: "voice.toggle",
+} as const;
 
 function getDefaultPlayerArgs(): string[] {
   return process.platform === "darwin" ? [] : ["-q"];
@@ -341,6 +365,12 @@ function parsePlayerArgs(value: string[] | string | undefined): string[] {
   const args = value.trim().split(/\s+/u);
   return args.length > 0 ? args : defaultConfig.playerArgs;
 }
+function getTextFromParts(parts: Array<{ text?: string; type?: string }>): string {
+  return parts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text ?? "")
+    .join("");
+}
 
 function toPluginOptions(options?: PluginOptions): VoicePluginOptions {
   return (options ?? {}) as VoicePluginOptions;
@@ -429,6 +459,25 @@ function loadConfig(options?: PluginOptions): TtsConfig {
       defaultConfig.trimSilenceThreshold,
     ),
     voice: normalizeString(pluginOptions.voice, process.env.OPENCODE_TTS_VOICE ?? process.env.KOKORO_VOICE ?? defaultConfig.voice),
+  };
+}
+
+function createDebugLog(config: TtsConfig): DebugLog {
+  const filePath = path.join(config.cacheDir, "debug.log");
+
+  try {
+    mkdirSync(config.cacheDir, { recursive: true });
+  } catch {
+    // Ignore logger directory creation failures.
+  }
+
+  return (message, data) => {
+    try {
+      const suffix = data ? ` ${JSON.stringify(data)}` : "";
+      appendFileSync(filePath, `${new Date().toISOString()} ${message}${suffix}\n`, "utf8");
+    } catch {
+      // Ignore debug logging failures.
+    }
   };
 }
 
@@ -635,12 +684,7 @@ function createPcmPlayer(sampleRate: number, config: TtsConfig) {
     "-r",
     String(sampleRate),
   ], {
-    stdio: ["pipe", "ignore", "pipe"],
-  });
-
-  let stderr = "";
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
+    stdio: ["pipe", "ignore", "ignore"],
   });
 
   const done = new Promise<void>((resolve, reject) => {
@@ -651,7 +695,7 @@ function createPcmPlayer(sampleRate: number, config: TtsConfig) {
         return;
       }
 
-      reject(new Error(stderr.trim() || `${config.playerBin} exited with code ${code}`));
+      reject(new Error(`${config.playerBin} exited with code ${code}`));
     });
   });
 
@@ -683,8 +727,92 @@ function createWavBuffer(audio: Float32Array, sampleRate: number): Buffer {
   return Buffer.concat([header, pcm]);
 }
 
+function isAfplayPlayer(config: TtsConfig): boolean {
+  return process.platform === "darwin" && path.basename(config.playerBin) === "afplay";
+}
+
+function isAplayPlayer(config: TtsConfig): boolean {
+  return process.platform === "linux" && path.basename(config.playerBin) === "aplay";
+}
+
 function useFilePlayback(config: TtsConfig): boolean {
-  return process.platform === "darwin" && config.playerBin === "afplay";
+  return isAfplayPlayer(config) || isAplayPlayer(config);
+}
+
+function useDetachedFilePlayback(config: TtsConfig): boolean {
+  return isAplayPlayer(config);
+}
+
+async function spawnDetachedFilePlayer(config: TtsConfig, filePath: string): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const child = spawn(
+      "/bin/sh",
+      [
+        "-c",
+        'player="$1"; shift; command -v -- "$player" >/dev/null 2>&1 || exit 127; "$player" "$@" </dev/null >/dev/null 2>&1 & printf "%s\\n" "$!"',
+        "sh",
+        config.playerBin,
+        ...config.playerArgs,
+        filePath,
+      ],
+      {
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    let stdout = "";
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+
+    child.on("error", reject);
+    child.on("close", (code: number | null) => {
+      if (code !== 0) {
+        reject(new Error(`failed to launch ${config.playerBin}: exit ${code}`));
+        return;
+      }
+
+      const pid = Number.parseInt(stdout.trim(), 10);
+      if (!Number.isInteger(pid) || pid <= 0) {
+        reject(new Error(`failed to launch ${config.playerBin}: invalid pid '${stdout.trim()}'`));
+        return;
+      }
+
+      resolve(pid);
+    });
+  });
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  while (isProcessRunning(pid)) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 25);
+    });
+  }
+}
+
+function killProcessQuietly(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (!pid) {
+    return;
+  }
+
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+      // Ignore process shutdown errors during forced playback teardown.
+    }
+  }
 }
 
 async function playAudioFile(
@@ -692,15 +820,29 @@ async function playAudioFile(
   filePath: string,
   controller: PlaybackController,
 ): Promise<void> {
+  if (useDetachedFilePlayback(config)) {
+    const pid = await spawnDetachedFilePlayer(config, filePath);
+    controller.playerPid = pid;
+
+    try {
+      if (controller.cancelled) {
+        killProcessQuietly(pid);
+        return;
+      }
+
+      await waitForProcessExit(pid);
+      return;
+    } finally {
+      if (controller.playerPid === pid) {
+        controller.playerPid = undefined;
+      }
+    }
+  }
+
   const child = spawn(config.playerBin, [...config.playerArgs, filePath], {
-    stdio: ["ignore", "ignore", "pipe"],
+    stdio: ["ignore", "ignore", "ignore"],
   });
   controller.playerProcess = child;
-
-  let stderr = "";
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
-  });
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -716,7 +858,7 @@ async function playAudioFile(
           return;
         }
 
-        reject(new Error(stderr.trim() || `${config.playerBin} exited with code ${code}`));
+        reject(new Error(`${config.playerBin} exited with code ${code}`));
       });
     });
   } finally {
@@ -795,6 +937,22 @@ async function closePlayerInput(stream: ReturnType<typeof createPcmPlayer>["stdi
   });
 }
 
+function closePlayerInputQuietly(stream: ReturnType<typeof createPcmPlayer>["stdin"] | undefined): void {
+  if (!stream || stream.destroyed) {
+    return;
+  }
+
+  try {
+    stream.end();
+  } catch {
+    try {
+      stream.destroy();
+    } catch {
+      // Ignore shutdown errors during forced playback teardown.
+    }
+  }
+}
+
 async function cancelIterator(iterator: AsyncIterator<KokoroStreamChunk, void, void>): Promise<void> {
   if (typeof iterator.return !== "function") {
     return;
@@ -807,15 +965,34 @@ async function cancelIterator(iterator: AsyncIterator<KokoroStreamChunk, void, v
   }
 }
 
-function cancelPlayback(controller: PlaybackController): void {
+function cancelPlayback(controller: PlaybackController, debug?: DebugLog): void {
   controller.cancelled = true;
 
-  if (controller.playerInput && !controller.playerInput.destroyed) {
-    controller.playerInput.destroy(new Error("speech cancelled"));
-  }
+  const playerInput = controller.playerInput;
+  const playerPid = controller.playerPid;
+  const playerProcess = controller.playerProcess;
+  controller.playerInput = undefined;
+  controller.playerPid = undefined;
+  controller.playerProcess = undefined;
 
-  if (controller.playerProcess && !controller.playerProcess.killed) {
-    controller.playerProcess.kill("SIGTERM");
+  debug?.("cancelPlayback", {
+    hasInput: Boolean(playerInput),
+    inputDestroyed: playerInput?.destroyed ?? null,
+    hasPid: Boolean(playerPid),
+    playerPid: playerPid ?? null,
+    hasProcess: Boolean(playerProcess),
+    processKilled: playerProcess?.killed ?? null,
+  });
+
+  closePlayerInputQuietly(playerInput);
+  killProcessQuietly(playerPid);
+
+  if (playerProcess && !playerProcess.killed) {
+    try {
+      playerProcess.kill("SIGTERM");
+    } catch {
+      // Ignore process shutdown errors during forced playback teardown.
+    }
   }
 }
 
@@ -823,19 +1000,24 @@ async function playGeneratedStream(
   config: TtsConfig,
   stream: AsyncGenerator<KokoroStreamChunk, void, void>,
   controller: PlaybackController,
+  debug?: DebugLog,
 ): Promise<void> {
   const iterator = stream[Symbol.asyncIterator]();
   let nextChunkPromise: Promise<IteratorResult<KokoroStreamChunk, void>> | undefined;
   let player: ReturnType<typeof createPcmPlayer> | undefined;
 
   try {
+    debug?.("playGeneratedStream.start", { filePlayback: useFilePlayback(config), playerBin: config.playerBin });
+
     if (controller.cancelled) {
+      debug?.("playGeneratedStream.cancelled.before-first-chunk");
       await cancelIterator(iterator);
       return;
     }
 
     let result = await iterator.next();
     if (result.done || controller.cancelled) {
+      debug?.("playGeneratedStream.cancelled.after-first-chunk", { done: result.done, cancelled: controller.cancelled });
       await cancelIterator(iterator);
       return;
     }
@@ -861,6 +1043,7 @@ async function playGeneratedStream(
       }
 
       if (controller.cancelled) {
+        debug?.("playGeneratedStream.file.cancelled");
         await cancelIterator(iterator);
         return;
       }
@@ -888,7 +1071,7 @@ async function playGeneratedStream(
       }
 
       if (controller.cancelled) {
-        player.stdin.destroy(new Error("speech cancelled"));
+        debug?.("playGeneratedStream.pipe.cancelled");
         try {
           await player.done;
         } catch {
@@ -902,12 +1085,24 @@ async function playGeneratedStream(
       await player.done;
     }
   } catch (error) {
+    debug?.("playGeneratedStream.error", {
+      cancelled: controller.cancelled,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
     if (nextChunkPromise) {
       void nextChunkPromise.catch(() => {});
     }
 
-    if (player?.stdin && !player.stdin.destroyed) {
-      player.stdin.destroy(error instanceof Error ? error : new Error(String(error)));
+    if (player && !controller.cancelled) {
+      closePlayerInputQuietly(player.stdin);
+      if (!player.child.killed) {
+        try {
+          player.child.kill("SIGTERM");
+        } catch {
+          // Ignore process shutdown errors and keep the original failure.
+        }
+      }
     }
 
     if (player) {
@@ -925,6 +1120,7 @@ async function playGeneratedStream(
     }
   } finally {
     controller.playerInput = undefined;
+    controller.playerPid = undefined;
     controller.playerProcess = undefined;
   }
 }
@@ -1093,12 +1289,13 @@ async function loadKokoroModule(): Promise<LoadedKokoroModule> {
   };
 }
 
-function createTtsEngine(config: TtsConfig) {
+function createTtsEngine(config: TtsConfig, debug?: DebugLog) {
   let deviceCandidatesPromise: Promise<RuntimeDevice[]> | undefined;
   let kokoroModulePromise: Promise<LoadedKokoroModule> | undefined;
   let ttsPromise: Promise<KokoroRuntime> | undefined;
   let queueTail = Promise.resolve();
   const speechStreams = new Map<string, Promise<SpeechStreamState>>();
+  const activeControllers = new Set<PlaybackController>();
 
   async function getDeviceCandidates(): Promise<RuntimeDevice[]> {
     if (!deviceCandidatesPromise) {
@@ -1204,7 +1401,12 @@ function createTtsEngine(config: TtsConfig) {
       voice: config.voice,
     });
 
-    await playGeneratedStream(config, stream, controller);
+    activeControllers.add(controller);
+    try {
+      await playGeneratedStream(config, stream, controller, debug);
+    } finally {
+      activeControllers.delete(controller);
+    }
   }
 
   async function createSpeechStream(streamID: string): Promise<SpeechStreamState> {
@@ -1233,7 +1435,12 @@ function createTtsEngine(config: TtsConfig) {
         voice: config.voice,
       });
 
-      await playGeneratedStream(config, stream, state.controller);
+      activeControllers.add(state.controller);
+      try {
+        await playGeneratedStream(config, stream, state.controller, debug);
+      } finally {
+        activeControllers.delete(state.controller);
+      }
     });
 
     void playback.catch(() => {}).finally(() => {
@@ -1300,6 +1507,7 @@ function createTtsEngine(config: TtsConfig) {
       }
 
       const streamState = await statePromise.catch(() => undefined);
+      debug?.("cancelStream", { streamID, found: Boolean(streamState), alreadyCancelled: streamState?.cancelled ?? null });
       if (!streamState || streamState.cancelled) {
         return;
       }
@@ -1307,7 +1515,7 @@ function createTtsEngine(config: TtsConfig) {
       streamState.cancelled = true;
       streamState.closed = true;
       streamState.rawPendingText = "";
-      cancelPlayback(streamState.controller);
+      cancelPlayback(streamState.controller, debug);
       streamState.splitter.close();
     },
     async finishStream(streamID: string): Promise<void> {
@@ -1339,15 +1547,88 @@ function createTtsEngine(config: TtsConfig) {
         return "failed";
       }
     },
+    async speakNow(text: string): Promise<boolean> {
+      const result = await this.speak(text);
+      return result === "spoken";
+    },
+    async stopAll(): Promise<void> {
+      debug?.("stopAll.start", { streamCount: speechStreams.size, controllerCount: activeControllers.size });
+      for (const streamID of speechStreams.keys()) {
+        await this.cancelStream(streamID);
+      }
+
+      for (const controller of activeControllers) {
+        cancelPlayback(controller, debug);
+      }
+      debug?.("stopAll.done", { streamCount: speechStreams.size, controllerCount: activeControllers.size });
+    },
   };
 }
 
 export const VoicePlugin: Plugin = async ({ client }, options) => {
   const config = loadConfig(options);
-  const ttsEngine = createTtsEngine(config);
+  const debug = createDebugLog(config);
+  const ttsEngine = createTtsEngine(config, debug);
   const messageRoles = new Map<string, MessageRole>();
   const messageStates = new Map<string, MessageState>();
   const roleLookups = new Map<string, Promise<MessageRole | undefined>>();
+  const latestAssistantMessageIDBySession = new Map<string, string>();
+  let activeSessionID: string | undefined;
+  let enabled = true;
+
+  async function stopPlayback(): Promise<void> {
+    debug("stopPlayback.start");
+    await ttsEngine.stopAll();
+    debug("stopPlayback.done");
+  }
+
+  let shuttingDown = false;
+  const handleShutdown = () => {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    debug("process.shutdown");
+    void stopPlayback().catch(() => {});
+  };
+
+  process.once("SIGINT", handleShutdown);
+  process.once("SIGTERM", handleShutdown);
+  process.once("exit", handleShutdown);
+
+  async function togglePlayback(): Promise<boolean> {
+    enabled = !enabled;
+    if (!enabled) {
+      await stopPlayback();
+    }
+    return enabled;
+  }
+
+  async function replayLatestAssistantMessage(sessionID: string): Promise<boolean> {
+    const messageID = latestAssistantMessageIDBySession.get(sessionID);
+    if (!messageID || !enabled) {
+      return false;
+    }
+
+    await stopPlayback();
+
+    try {
+      const response = await client.session.messages({
+        path: { id: sessionID },
+        query: { limit: 12 },
+      });
+      const message = (response.data ?? []).find((item) => item.info.id === messageID);
+      const text = message ? getTextFromParts(message.parts as Array<{ text?: string; type?: string }>) : "";
+      if (!text) {
+        return false;
+      }
+
+      return (await ttsEngine.speak(text)) === "spoken";
+    } catch {
+      return false;
+    }
+  }
 
   function getMessageState(messageID: string, sessionID: string): MessageState {
     const existingState = messageStates.get(messageID);
@@ -1378,6 +1659,10 @@ export const VoicePlugin: Plugin = async ({ client }, options) => {
   }
 
   async function queueSpeech(text: string): Promise<SpeakResult> {
+    if (!enabled) {
+      return "skipped";
+    }
+
     return ttsEngine.speak(text);
   }
 
@@ -1449,11 +1734,19 @@ export const VoicePlugin: Plugin = async ({ client }, options) => {
     }
 
     const textPart = part as TextPart;
+    activeSessionID ??= textPart.sessionID;
     const state = getMessageState(textPart.messageID, textPart.sessionID);
     const role = state.role ?? await ensureMessageRole(textPart.sessionID, textPart.messageID);
     state.role = role;
 
     if (role !== "assistant") {
+      return;
+    }
+
+    latestAssistantMessageIDBySession.set(textPart.sessionID, textPart.messageID);
+
+    if (!enabled) {
+      getTextDelta(state, textPart, delta);
       return;
     }
 
@@ -1478,6 +1771,8 @@ export const VoicePlugin: Plugin = async ({ client }, options) => {
       return;
     }
 
+    latestAssistantMessageIDBySession.set(state.sessionID, messageInfo.id);
+
     if (messageInfo.time?.completed || messageInfo.finish) {
       state.completed = true;
       await ttsEngine.finishStream(state.streamID);
@@ -1486,6 +1781,8 @@ export const VoicePlugin: Plugin = async ({ client }, options) => {
   }
 
   function handleSessionIdle(event: SessionIdleEvent) {
+    activeSessionID ??= event.properties.sessionID;
+
     for (const [messageID, state] of messageStates.entries()) {
       if (state.sessionID === event.properties.sessionID) {
         state.completed = true;
@@ -1503,6 +1800,30 @@ export const VoicePlugin: Plugin = async ({ client }, options) => {
   return {
     event: async ({ event }) => {
       const pluginEvent = event as PluginEvent;
+
+      if (pluginEvent.type === "tui.session.select") {
+        activeSessionID = (pluginEvent as TuiSessionSelectEvent).properties.sessionID;
+        return;
+      }
+
+      if (pluginEvent.type === "tui.command.execute") {
+        const command = (pluginEvent as TuiCommandExecuteEvent).properties.command;
+
+        if (command === CONTROL_COMMANDS.stop) {
+          await stopPlayback();
+          return;
+        }
+
+        if (command === CONTROL_COMMANDS.toggle) {
+          await togglePlayback();
+          return;
+        }
+
+        if (command === CONTROL_COMMANDS.skipLatest && activeSessionID) {
+          await replayLatestAssistantMessage(activeSessionID);
+        }
+        return;
+      }
 
       if (pluginEvent.type === "message.updated") {
         await handleMessageUpdated(pluginEvent as MessageUpdatedEvent);
@@ -1539,6 +1860,30 @@ export const VoicePlugin: Plugin = async ({ client }, options) => {
         async execute(args) {
           const result = await queueSpeech(args.text);
           return result === "failed" ? `[TTS error] \"${args.text}\"` : `\"${args.text}\"`;
+        },
+      }),
+      stop: tool({
+        description: "Stop current voice playback.",
+        args: {},
+        async execute() {
+          await stopPlayback();
+          return "stopped";
+        },
+      }),
+      toggle: tool({
+        description: "Toggle voice playback on or off.",
+        args: {},
+        async execute() {
+          return (await togglePlayback()) ? "enabled" : "disabled";
+        },
+      }),
+      replay_latest: tool({
+        description: "Replay the latest assistant message for a session.",
+        args: {
+          sessionID: tool.schema.string().describe("Session ID to replay from"),
+        },
+        async execute(args) {
+          return (await replayLatestAssistantMessage(String(args.sessionID))) ? "replayed" : "skipped";
         },
       }),
     },

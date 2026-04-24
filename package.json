@@ -1,20 +1,40 @@
 {
   "name": "@semirhuduti/opencode-tts-voice",
-  "version": "0.1.3",
-  "description": "Local Kokoro TTS plugin for OpenCode",
+  "version": "0.2.0",
+  "description": "Kokoro voice output plugin for OpenCode with TUI shortcuts",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "tts",
+    "voice",
+    "kokoro",
+    "tui"
+  ],
   "files": [
     "dist",
+    "src/tui.tsx",
     "README.md",
     "LICENSE"
   ],
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./src/tui.tsx",
+      "import": "./src/tui.tsx"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT",
   "repository": {
@@ -27,7 +47,10 @@
   },
   "dependencies": {
     "@opencode-ai/plugin": "^1.14.20",
-    "kokoro-js": "^1.2.1"
+    "@opentui/core": "^0.1.99",
+    "@opentui/solid": "^0.1.99",
+    "kokoro-js": "^1.2.1",
+    "solid-js": "^1.9.12"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
