@@ -12,29 +12,25 @@
   ],
   "files": [
     "dist",
-    "src",
     "README.md",
     "LICENSE"
   ],
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
     "./tui": {
-      "types": "./src/tui.tsx",
-      "import": "./src/tui.tsx"
+      "types": "./dist/tui-plugin.d.ts",
+      "import": "./dist/tui-plugin.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ./scripts/clean-dist.mjs && tsc -p tsconfig.json && bun run ./scripts/build-tui.ts",
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "opencode": "^1.14.24"
   },
   "license": "MIT",
   "repository": {
@@ -46,11 +42,12 @@
     "url": "https://github.com/semirhuduti/opencode-tts-voice/issues"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.14.20",
-    "@opentui/core": "^0.1.99",
-    "@opentui/solid": "^0.1.99",
+    "@huggingface/transformers": "^3.5.1",
+    "@opencode-ai/plugin": "^1.14.24",
+    "@opentui/core": "^0.1.103",
+    "@opentui/solid": "^0.1.103",
     "kokoro-js": "^1.2.1",
-    "solid-js": "^1.9.12"
+    "solid-js": "1.9.11"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
