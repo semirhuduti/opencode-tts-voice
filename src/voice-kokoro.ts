@@ -100,6 +100,9 @@ export class KokoroRuntime {
       dtype: this.config.dtype,
       preferredDevice: this.config.device,
     })
+    const { env } = await import("@huggingface/transformers")
+    // Suppress native ORT warnings during first session init while keeping actual errors visible.
+    env.backends.onnx.logLevel = "error"
     const { KokoroTTS } = await import("kokoro-js")
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]
