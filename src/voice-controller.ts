@@ -37,15 +37,9 @@ type CurrentTask = {
   child?: ChildProcess
 }
 
-type SpokenTextPart = Extract<Part, { type: "text" }>
-
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
   return String(error)
-}
-
-function isSpokenTextPart(part: Part | undefined): part is SpokenTextPart {
-  return part?.type === "text" && !part.synthetic && !part.ignored
 }
 
 function isMissingBinary(error: unknown): error is NodeJS.ErrnoException {
@@ -146,21 +140,6 @@ export class VoiceController {
 
   snapshot() {
     return { ...this.state }
-  }
-
-  async preloadRuntime() {
-    if (!this.state.enabled) {
-      this.log.info("runtime preload skipped", { enabled: false })
-      return
-    }
-
-    this.log.info("runtime preload start")
-    try {
-      const runtime = await this.runtime.preload()
-      this.log.info("runtime preload complete", { device: runtime.device })
-    } catch (error) {
-      await this.handleRuntimeError(error)
-    }
   }
 
   async toggleEnabled() {
@@ -479,8 +458,7 @@ export class VoiceController {
     if (!this.config.readResponses || event.field !== "text") return
 
     const message = this.lookupMessage(event.sessionID, event.messageID)
-    const part = this.api.state.part(event.messageID).find((candidate) => candidate.id === event.partID)
-    if (!message || message.role !== "assistant" || message.summary || !this.state.enabled || !isSpokenTextPart(part)) {
+    if (!message || message.role !== "assistant" || message.summary || !this.state.enabled) {
       this.log.warn("stream delta ignored", {
         sessionID: event.sessionID,
         messageID: event.messageID,
@@ -489,7 +467,6 @@ export class VoiceController {
         role: message?.role,
         summary: Boolean(message?.summary),
         enabled: this.state.enabled,
-        partType: part?.type,
       })
       return
     }
@@ -524,7 +501,7 @@ export class VoiceController {
   }
 
   private onMessagePartUpdated(part: Part) {
-    if (!isSpokenTextPart(part)) return
+    if (part.type !== "text" || part.synthetic || part.ignored) return
 
     const message = this.lookupMessage(part.sessionID, part.messageID)
     if (!message || message.role !== "assistant" || message.summary) {
@@ -650,7 +627,10 @@ export class VoiceController {
   private collectAssistantText(messageID: string) {
     const parts = this.api.state.part(messageID)
     const text = parts
-      .filter(isSpokenTextPart)
+      .filter(
+        (part): part is Extract<(typeof parts)[number], { type: "text" }> =>
+          part.type === "text" && !part.synthetic && !part.ignored,
+      )
       .map((part) => part.text)
       .join(" ")
 

@@ -51,7 +51,30 @@ export class KokoroRuntime {
     private readonly logger: VoiceLogger,
   ) {}
 
-  async preload(): Promise<LoadedRuntime> {
+  async generate(text: string) {
+    this.logger.info("generate start", {
+      textLength: text.length,
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })
+    const runtime = await this.load()
+    const audio = await runtime.tts.generate(text, {
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })
+    this.logger.info("generate complete", {
+      textLength: text.length,
+      sampleRate: audio.sampling_rate,
+      samples: audio.data.length,
+      device: runtime.device,
+    })
+    return {
+      audio: audio.data,
+      sampleRate: audio.sampling_rate,
+    }
+  }
+
+  private async load() {
     if (this.loaded) return this.loaded
     if (this.loading) return this.loading
 
@@ -71,29 +94,6 @@ export class KokoroRuntime {
     return this.loading
   }
 
-  async generate(text: string) {
-    this.logger.info("generate start", {
-      textLength: text.length,
-      voice: this.config.voice,
-      speed: this.config.speed,
-    })
-    const runtime = await this.preload()
-    const audio = await runtime.tts.generate(text, {
-      voice: this.config.voice,
-      speed: this.config.speed,
-    })
-    this.logger.info("generate complete", {
-      textLength: text.length,
-      sampleRate: audio.sampling_rate,
-      samples: audio.data.length,
-      device: runtime.device,
-    })
-    return {
-      audio: audio.data,
-      sampleRate: audio.sampling_rate,
-    }
-  }
-
   private async create(): Promise<LoadedRuntime> {
     this.logger.info("runtime import start", {
       model: this.config.model,
@@ -105,20 +105,11 @@ export class KokoroRuntime {
       dtype: VoiceConfig["dtype"]
       device: TransformDevice
     }
-    const loadKokoro = async (device: TransformDevice) => {
-      try {
-        return await KokoroTTS.from_pretrained(this.config.model, {
-          dtype: this.config.dtype,
-          device,
-        } as KokoroLoaderOptions as Parameters<typeof KokoroTTS.from_pretrained>[1])
-      } catch (error) {
-        this.logger.warn("runtime preload failed", {
-          device,
-          error: formatError(error),
-        })
-        throw error
-      }
-    }
+    const loadKokoro = (device: TransformDevice) =>
+      KokoroTTS.from_pretrained(this.config.model, {
+        dtype: this.config.dtype,
+        device,
+      } as KokoroLoaderOptions as Parameters<typeof KokoroTTS.from_pretrained>[1])
 
     this.onStatus({ device: "loading", error: undefined })
 
