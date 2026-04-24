@@ -80,7 +80,7 @@ export class KokoroRuntime {
   }
 
   private async create(): Promise<LoadedRuntime> {
-    const [{ KokoroTTS }, { env }] = await Promise.all([import("kokoro-js"), import("@huggingface/transformers")])
+    const { KokoroTTS } = await import("kokoro-js")
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]
       device: TransformDevice
@@ -90,12 +90,6 @@ export class KokoroRuntime {
         dtype: this.config.dtype,
         device,
       } as KokoroLoaderOptions as Parameters<typeof KokoroTTS.from_pretrained>[1])
-
-    if (this.config.cacheDir) {
-      env.cacheDir = this.config.cacheDir
-      env.useFSCache = true
-    }
-    env.allowLocalModels = true
 
     this.onStatus({ device: "loading", error: undefined })
 
