@@ -85,13 +85,6 @@ const tui: TuiPlugin = async (api, options) => {
     readResponses: config.readResponses,
   })
   const controller = new VoiceController(api, config)
-  api.lifecycle.onDispose(() => {
-    log.info("tui dispose")
-    return controller.dispose()
-  })
-
-  await controller.preloadRuntime()
-
   const shortcutKeys = api.keybind.create(
     {
       pause: config.shortcuts.pause,
@@ -146,6 +139,11 @@ const tui: TuiPlugin = async (api, options) => {
         return <ShortcutHint api={api} controller={controller} keybinds={shortcutKeys} />
       },
     },
+  })
+
+  api.lifecycle.onDispose(() => {
+    log.info("tui dispose")
+    return controller.dispose()
   })
 }
 
