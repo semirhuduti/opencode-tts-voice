@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin";
+import type { PluginModule } from "@opencode-ai/plugin";
 
 export { createTtsEngine } from "./generation.js";
 export type { TtsEngine } from "./generation.js";
@@ -16,10 +16,11 @@ export type {
   VoicePluginOptions,
 } from "./shared.js";
 
-export const VoicePlugin: Plugin = async () => {
-  // The voice runtime now lives entirely in the TUI plugin so it can use
-  // lifecycle-managed disposal instead of process exit handlers.
-  return {};
+export const VoicePlugin: PluginModule = {
+  id: "@semirhuduti/opencode-tts-voice",
+  // The voice runtime lives in the TUI plugin. The server side stays as a
+  // no-op module so package-root plugin specs remain valid in opencode.json.
+  server: async () => ({}),
 };
 
 export default VoicePlugin;

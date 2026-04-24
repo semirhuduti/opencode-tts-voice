@@ -115,6 +115,11 @@ export interface LoadedKokoroModule {
 export interface TransformersEnvironment {
   allowLocalModels: boolean;
   allowRemoteModels: boolean;
+  backends?: {
+    onnx?: {
+      logLevel?: "verbose" | "info" | "warning" | "error" | "fatal";
+    };
+  };
   cacheDir: string;
   useBrowserCache: boolean;
   useFS: boolean;
@@ -134,11 +139,11 @@ const DEFAULT_CHUNK_PAUSE_MS = 50;
 const CLAUSE_CHUNK_PAUSE_MS = 80;
 
 function getDefaultPlayerArgs(): string[] {
-  return process.platform === "darwin" ? [] : ["-q"];
+  return [];
 }
 
 function getDefaultPlayerBin(): string {
-  return process.platform === "darwin" ? "afplay" : "aplay";
+  return "ffplay";
 }
 
 const defaultConfig: TtsConfig = {

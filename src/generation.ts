@@ -57,6 +57,7 @@ async function configureTransformersEnvironment(cacheDir: string): Promise<void>
 
   env.allowLocalModels = true;
   env.allowRemoteModels = true;
+  env.backends?.onnx && (env.backends.onnx.logLevel = "error");
   env.cacheDir = cacheDir;
   env.useFS = true;
   env.useFSCache = true;
@@ -136,6 +137,7 @@ async function probeKokoroDevice(device: RuntimeDevice, config: TtsConfig): Prom
     "await mkdir(process.env.OPENCODE_TTS_PROBE_CACHE_DIR, { recursive: true });",
     "env.allowLocalModels = true;",
     "env.allowRemoteModels = true;",
+    "if (env.backends?.onnx) env.backends.onnx.logLevel = 'error';",
     "env.cacheDir = process.env.OPENCODE_TTS_PROBE_CACHE_DIR;",
     "env.useFS = true;",
     "env.useFSCache = true;",

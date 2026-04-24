@@ -8,18 +8,19 @@ Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support fo
 - adds TUI shortcuts for pause, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
 - supports CPU and GPU execution
-- plays audio locally with the system audio player
+- plays audio locally through an isolated helper process
 
 ## Requirements
 
-- Linux or macOS
+- Linux, macOS, or Windows
 - OpenCode with plugin support
-- a local audio player command available on the system
+- a local `ffplay` or `mpv` command available on the system
 
 Defaults:
 
-- Linux: `aplay`
-- macOS: `afplay`
+- all platforms: `ffplay`
+
+The plugin now launches playback through a detached Node helper process. OpenCode streams PCM audio to the helper over a localhost socket, and the helper owns the actual player process. This isolates playback teardown from the Bun runtime and avoids the `aplay`/`afplay` shutdown path that was causing crashes.
 
 Optional:
 
@@ -72,8 +73,8 @@ The plugin works with defaults, so the `shortcuts` block is optional unless you 
 | `dtype` | string | `q8` | Model precision. Accepted values: `fp32`, `fp16`, `q4`, `q4f16`, `q8`. |
 | `model` | string | `onnx-community/Kokoro-82M-v1.0-ONNX` | Model ID or compatible local model path. |
 | `cacheDir` | string | OS-specific cache directory | Directory used for model downloads and cache data. |
-| `playerBin` | string | OS-specific | Playback command. Defaults to `aplay` on Linux and `afplay` on macOS. |
-| `playerArgs` | string or string[] | OS-specific | Additional arguments passed to the playback command. Defaults to `-q` on Linux and no extra arguments on macOS. |
+| `playerBin` | string | `ffplay` | Playback backend command. Supported values are `ffplay` and `mpv`. |
+| `playerArgs` | string or string[] | `[]` | Additional arguments passed to the playback backend helper. |
 | `readResponses` | boolean | `true` | Speak streamed assistant responses. |
 | `announceOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
 | `idleMessage` | string | `Task completed.` | Idle message text. |
@@ -106,6 +107,30 @@ Published package entrypoints:
 - `./tui`: TUI plugin entrypoint for OpenCode terminal UI
 
 This package is intended to be published as a public scoped npm package.
+
+## Playback Backends
+
+Supported backends:
+
+- `ffplay` (default)
+- `mpv`
+
+Example backend override:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    [
+      "@semirhuduti/opencode-tts-voice",
+      {
+        "playerBin": "mpv",
+        "playerArgs": ["--volume=70"]
+      }
+    ]
+  ]
+}
+```
 
 ## Voices
 

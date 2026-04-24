@@ -117,7 +117,7 @@ export function ShortcutHintBar(props: ShortcutHintBarProps) {
         accent={pauseAccent()}
         icon={pauseIcon()}
         keyLabel={props.keys.print("pause")}
-        label="pause"
+        label="pauzzze"
         muted={props.muted}
       />
       <HintChip

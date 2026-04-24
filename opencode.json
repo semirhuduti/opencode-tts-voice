@@ -1,0 +1,6 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "file:///home/semir/workspace/opencode-voice-tts"
+  ]
+}
