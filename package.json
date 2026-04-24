@@ -1,6 +1,6 @@
 {
   "name": "@semirhuduti/opencode-tts-voice",
-  "version": "0.2.1-alpha.0",
+  "version": "0.3.0-alpha.0",
   "description": "Kokoro voice output plugin for OpenCode with TUI shortcuts",
   "keywords": [
     "opencode",
