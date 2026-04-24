@@ -37,9 +37,15 @@ type CurrentTask = {
   child?: ChildProcess
 }
 
+type SpokenTextPart = Extract<Part, { type: "text" }>
+
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
   return String(error)
+}
+
+function isSpokenTextPart(part: Part | undefined): part is SpokenTextPart {
+  return part?.type === "text" && !part.synthetic && !part.ignored
 }
 
 function isMissingBinary(error: unknown): error is NodeJS.ErrnoException {
@@ -458,7 +464,8 @@ export class VoiceController {
     if (!this.config.readResponses || event.field !== "text") return
 
     const message = this.lookupMessage(event.sessionID, event.messageID)
-    if (!message || message.role !== "assistant" || message.summary || !this.state.enabled) {
+    const part = this.api.state.part(event.messageID).find((candidate) => candidate.id === event.partID)
+    if (!message || message.role !== "assistant" || message.summary || !this.state.enabled || !isSpokenTextPart(part)) {
       this.log.warn("stream delta ignored", {
         sessionID: event.sessionID,
         messageID: event.messageID,
@@ -467,6 +474,7 @@ export class VoiceController {
         role: message?.role,
         summary: Boolean(message?.summary),
         enabled: this.state.enabled,
+        partType: part?.type,
       })
       return
     }
@@ -501,7 +509,7 @@ export class VoiceController {
   }
 
   private onMessagePartUpdated(part: Part) {
-    if (part.type !== "text" || part.synthetic || part.ignored) return
+    if (!isSpokenTextPart(part)) return
 
     const message = this.lookupMessage(part.sessionID, part.messageID)
     if (!message || message.role !== "assistant" || message.summary) {
@@ -627,10 +635,7 @@ export class VoiceController {
   private collectAssistantText(messageID: string) {
     const parts = this.api.state.part(messageID)
     const text = parts
-      .filter(
-        (part): part is Extract<(typeof parts)[number], { type: "text" }> =>
-          part.type === "text" && !part.synthetic && !part.ignored,
-      )
+      .filter(isSpokenTextPart)
       .map((part) => part.text)
       .join(" ")
 
