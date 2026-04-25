@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   readResponses: true,
   announceOnIdle: false,
   idleMessage: "Task completed.",
-  voiceBlocks: ["reason", "message", "idle"],
+  voiceBlocks: ["message", "idle"],
   speechChunkLength: 1000,
   streamSoftLimit: 180,
   maxTextLength: 2000,

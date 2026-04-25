@@ -316,6 +316,7 @@ export class VoiceController {
 
           file = await this.writeAudioFile(generated.audio, generated.sampleRate)
           current.phase = "play"
+          this.syncActivity()
           await this.playFile(file, current)
 
           if (this.shouldRequeue(current)) {

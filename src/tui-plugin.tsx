@@ -2,7 +2,7 @@
 
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { useKeyboard } from "@opentui/solid"
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { createMemo, createSignal, onCleanup } from "solid-js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { VoiceController } from "./voice-controller.js"
@@ -10,7 +10,9 @@ import { createLogger } from "./voice-log.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
 const log = createLogger("plugin")
-const GENERATING_FRAMES = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█", "▇", "▆", "▅", "▄", "▃", "▁"]
+const ACTION_GAP = "   "
+const HOTKEY = "#ff9d00"
+const ACTION_ICON = "#4da3ff"
 const TOGGLE_OFF = "#808080"
 
 function ShortcutManager(props: {
@@ -54,24 +56,13 @@ function ShortcutHint(props: {
   keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
 }) {
   const [state, setState] = createSignal(props.controller.snapshot())
-  const [frame, setFrame] = createSignal(0)
   const unsubscribe = props.controller.subscribe(() => setState(props.controller.snapshot()))
   onCleanup(unsubscribe)
-
-  createEffect(() => {
-    const current = state()
-    if (!current.generating) return
-
-    const timer = setInterval(() => {
-      setFrame((value) => (value + 1) % GENERATING_FRAMES.length)
-    }, 90)
-    onCleanup(() => clearInterval(timer))
-  })
 
   const theme = () => props.api.theme.current
   const playbackIcon = createMemo(() => {
     const current = state()
-    if (current.generating) return GENERATING_FRAMES[frame()]
+    if (current.generating) return "⟳"
     if (current.playing && !current.paused) return "⏸"
     return "►"
   })
@@ -85,13 +76,19 @@ function ShortcutHint(props: {
   return (
     <text fg={theme().textMuted}>
       <span>
-        {props.keybinds.print("pause")} {playbackIcon()} {playbackLabel()}
-      </span>{" "}
+        <span style={{ fg: HOTKEY }}>{props.keybinds.print("pause")}</span>{" "}
+        <span style={{ fg: ACTION_ICON }}>{playbackIcon()}</span>{" "}
+        {playbackLabel()}
+      </span>
+      {ACTION_GAP}
       <span>
-        {props.keybinds.print("skipLatest")} ↠ last
-      </span>{" "}
+        <span style={{ fg: HOTKEY }}>{props.keybinds.print("skipLatest")}</span>{" "}
+        <span style={{ fg: ACTION_ICON }}>⤋</span>{" "}
+        last
+      </span>
+      {ACTION_GAP}
       <span>
-        {props.keybinds.print("toggle")}{" "}
+        <span style={{ fg: HOTKEY }}>{props.keybinds.print("toggle")}</span>{" "}
         <span style={{ fg: state().enabled ? theme().success : TOGGLE_OFF }}>●</span> tts
       </span>
     </text>
