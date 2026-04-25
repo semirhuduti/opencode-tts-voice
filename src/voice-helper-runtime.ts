@@ -1,5 +1,3 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
-import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 import type { HelperRequest, HelperResponse, RuntimeStatus } from "./voice-helper-protocol.js"
 import type { VoiceConfig } from "./voice-types.js"
@@ -25,12 +23,11 @@ function formatError(error: unknown) {
 }
 
 export class TtsHelperRuntime {
-  private child?: ChildProcessWithoutNullStreams
+  private worker?: Worker
   private started?: Promise<void>
   private disposed = false
   private nextID = 1
   private pending = new Map<number, PendingRequest>()
-  private stderr = ""
 
   constructor(
     private readonly config: VoiceConfig,
@@ -70,7 +67,7 @@ export class TtsHelperRuntime {
   }
 
   async cancelEpoch(epoch: number) {
-    if (!this.child && !this.started) return
+    if (!this.worker && !this.started) return
     await this.send({ type: "cancel", epoch }).catch(() => undefined)
   }
 
@@ -84,35 +81,20 @@ export class TtsHelperRuntime {
     }
     this.pending.clear()
 
-    const child = this.child
-    this.child = undefined
-    if (!child) return
+    const worker = this.worker
+    this.worker = undefined
+    if (!worker) return
 
-    if (!child.killed) {
-      child.stdin.write(`${JSON.stringify({ type: "dispose" } satisfies HelperRequest)}\n`)
-      child.stdin.end()
-    }
-
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        if (!child.killed) child.kill("SIGTERM")
-        resolve()
-      }, 1000)
-      child.once("exit", () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+    worker.postMessage({ type: "dispose" } satisfies HelperRequest)
+    worker.terminate()
   }
 
   private async send(message: HelperRequest) {
     if (this.disposed) throw new Error("TTS helper is disposed")
     await this.ensureStarted()
-    const child = this.child
-    if (!child) throw new Error("TTS helper failed to start")
-    if (!child.stdin.write(`${JSON.stringify(message)}\n`)) {
-      await new Promise<void>((resolve) => child.stdin.once("drain", resolve))
-    }
+    const worker = this.worker
+    if (!worker) throw new Error("TTS helper failed to start")
+    worker.postMessage(message)
   }
 
   private ensureStarted() {
@@ -123,46 +105,25 @@ export class TtsHelperRuntime {
 
   private async start() {
     const helper = fileURLToPath(new URL("./voice-helper-process.js", import.meta.url))
-    const child = spawn(process.execPath, [helper], {
-      stdio: ["pipe", "pipe", "pipe"],
+    const worker = new Worker(helper, {
+      type: "module",
       env: {
         ...process.env,
-        // Helper stdout is reserved for protocol messages.
         OPENCODE_TTS_VOICE_LOG_LEVEL: process.env.OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL ?? "silent",
       },
-    })
-    this.child = child
+    } as WorkerOptions & { env: Record<string, string | undefined> })
+    this.worker = worker
+    this.logger.info("helper worker started", { helper })
 
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      this.stderr = `${this.stderr}${String(chunk)}`.slice(-4000)
-    })
-
-    child.once("error", (error) => {
-      this.failAll(error)
+    worker.addEventListener("message", (event: MessageEvent<HelperResponse>) => {
+      this.handleResponse(event.data)
     })
 
-    child.once("exit", (code, signal) => {
-      if (this.disposed) return
-      const suffix = this.stderr.trim() ? `. ${this.stderr.trim()}` : ""
-      this.failAll(new Error(`TTS helper exited with code ${code ?? "unknown"}${signal ? ` signal ${signal}` : ""}${suffix}`))
-      this.child = undefined
+    worker.addEventListener("error", (event) => {
+      this.failAll(event instanceof ErrorEvent ? event.error : event)
+      this.worker = undefined
       this.started = undefined
     })
-
-    void this.readResponses(child)
-  }
-
-  private async readResponses(child: ChildProcessWithoutNullStreams) {
-    const lines = createInterface({ input: child.stdout })
-    try {
-      for await (const line of lines) {
-        const text = line.trim()
-        if (!text) continue
-        this.handleResponse(JSON.parse(text) as HelperResponse)
-      }
-    } catch (error) {
-      if (!this.disposed) this.failAll(error)
-    }
   }
 
   private handleResponse(message: HelperResponse) {

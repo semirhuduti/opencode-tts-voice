@@ -15,6 +15,8 @@ type ActiveRequest = {
   cancelled: boolean
 }
 
+type Send = (message: HelperResponse) => void
+
 const logger = createLogger("helper-process")
 
 let runtime: KokoroRuntime | undefined
@@ -27,14 +29,13 @@ let tempDir: Promise<string> | undefined
 let sequence = 0
 let disposed = false
 let work: Promise<void> = Promise.resolve()
+let send: Send = (message) => {
+  stdout.write(`${JSON.stringify(message)}\n`)
+}
 
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
   return String(error)
-}
-
-function send(message: HelperResponse) {
-  stdout.write(`${JSON.stringify(message)}\n`)
 }
 
 function runtimeIdentity(config: VoiceConfig) {
@@ -142,17 +143,19 @@ async function generate(input: Extract<HelperRequest, { type: "generate" }>) {
   }
 }
 
-async function cleanup() {
+async function cleanup(exitProcess: boolean) {
   disposed = true
   if (active) active.cancelled = true
   const dir = tempDir
   tempDir = undefined
-  if (!dir) return
-  const value = await dir.catch(() => undefined)
-  if (value) await fs.rm(value, { recursive: true, force: true }).catch(() => undefined)
+  if (dir) {
+    const value = await dir.catch(() => undefined)
+    if (value) await fs.rm(value, { recursive: true, force: true }).catch(() => undefined)
+  }
+  if (exitProcess) process.exit(0)
 }
 
-async function handle(message: HelperRequest) {
+async function handle(message: HelperRequest, exitProcess: boolean) {
   if (message.type === "generate") {
     work = work.then(() => generate(message))
     return
@@ -165,8 +168,7 @@ async function handle(message: HelperRequest) {
     return
   }
 
-  await cleanup()
-  process.exit(0)
+  await cleanup(exitProcess)
 }
 
 async function main() {
@@ -176,20 +178,40 @@ async function main() {
     if (!text) continue
 
     try {
-      await handle(JSON.parse(text) as HelperRequest)
+      await handle(JSON.parse(text) as HelperRequest, true)
     } catch (error) {
       send({ type: "error", error: formatError(error) })
     }
   }
 
-  await cleanup()
+  await cleanup(false)
 }
 
-process.once("SIGTERM", () => {
-  void cleanup().finally(() => process.exit(0))
-})
+function startWorkerMode() {
+  send = (message) => {
+    postMessage(message)
+  }
 
-void main().catch((error) => {
-  send({ type: "error", error: formatError(error) })
-  process.exit(1)
-})
+  addEventListener("message", (event: MessageEvent<HelperRequest>) => {
+    void handle(event.data, false).catch((error) => {
+      send({ type: "error", error: formatError(error) })
+    })
+  })
+}
+
+function startProcessMode() {
+  process.once("SIGTERM", () => {
+    void cleanup(true)
+  })
+
+  void main().catch((error) => {
+    send({ type: "error", error: formatError(error) })
+    process.exit(1)
+  })
+}
+
+if (typeof self !== "undefined" && self !== globalThis && typeof postMessage === "function") {
+  startWorkerMode()
+} else {
+  startProcessMode()
+}
