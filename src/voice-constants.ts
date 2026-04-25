@@ -22,8 +22,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   maxTextLength: 2000,
   trimSilenceThreshold: 0.001,
   leadingAudioPadMs: 12,
-  defaultChunkPauseMs: 50,
-  clauseChunkPauseMs: 80,
+  defaultChunkPauseMs: 240,
+  clauseChunkPauseMs: 420,
   shortcuts: {
     pause: "f6",
     skipLatest: "f7",

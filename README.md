@@ -89,8 +89,8 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `maxTextLength` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
 | `trimSilenceThreshold` | number | `0.001` | Silence threshold used when trimming generated chunks. |
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
-| `defaultChunkPauseMs` | number | `50` | Pause added after normal chunks. |
-| `clauseChunkPauseMs` | number | `80` | Pause added after clause-ending punctuation. |
+| `defaultChunkPauseMs` | number | `140` | Pause added after normal chunks. |
+| `clauseChunkPauseMs` | number | `220` | Pause added after sentence, clause, or newline-ending chunks. |
 | `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
 | `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
@@ -107,15 +107,16 @@ Default TUI shortcuts:
 - `f7`: replay the latest assistant message
 - `f8`: enable or disable speech
 
-When the TUI entrypoint is active, the plugin also renders a small shortcut hint near the chat prompt using these symbols:
+When the TUI entrypoint is active, the plugin also renders compact shortcut chips near the chat prompt. Each chip uses `[hotkey hint icon]` order and only shows controls that are useful for the current state:
 
-- `►` for play
-- `⏸` for pause
-- `⟳` while audio is generating
-- `⤋` for replay latest
-- `●` green when TTS is enabled, gray when it is disabled
+- `[f8 off ○]` when speech is disabled
+- `[f6 play ▶] [f7 replay ↻] [f8 on ●]` when speech is enabled and idle
+- `⠋ [f6 pause Ⅱ] [f8 on ●]` while audio is generating, with the spinner animated and no `generating` text
+- `[f6 pause Ⅱ] [f8 on ●]` while audio is playing
+- `[f6 play ▶] [f7 replay ↻] [f8 on ●]` while paused
+- `[! error] [f8 on ●]` or `[! error] [f8 off ○]` after a playback error
 - shortcut keys are orange
-- action icons are blue, except the toggle dot which reflects TTS state
+- action icons are blue, except the toggle icon which is green for `on` and gray for `off`
 
 `voiceBlocks` works as a source filter on top of the existing booleans:
 

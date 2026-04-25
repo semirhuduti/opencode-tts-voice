@@ -1,8 +1,9 @@
 /** @jsxImportSource @opentui/solid */
 
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
+import type { ColorInput } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
-import { createMemo, createSignal, onCleanup } from "solid-js"
+import { createEffect, createSignal, onCleanup } from "solid-js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { VoiceController } from "./voice-controller.js"
@@ -10,10 +11,26 @@ import { createLogger } from "./voice-log.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
 const log = createLogger("plugin")
-const ACTION_GAP = "   "
+const ACTION_GAP = " "
 const HOTKEY = "#ff9d00"
 const ACTION_ICON = "#4da3ff"
 const TOGGLE_OFF = "#808080"
+const ERROR_ICON = "#ff5c57"
+const SPINNER_INTERVAL_MS = 90
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+function ShortcutChip(props: {
+  keyLabel: string
+  label: string
+  icon: string
+  iconColor?: ColorInput
+}) {
+  return (
+    <span>
+      [<span style={{ fg: HOTKEY }}>{props.keyLabel}</span> {props.label} <span style={{ fg: props.iconColor ?? ACTION_ICON }}>{props.icon}</span>]
+    </span>
+  )
+}
 
 function ShortcutManager(props: {
   api: TuiPluginApi
@@ -56,43 +73,51 @@ function ShortcutHint(props: {
   keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
 }) {
   const [state, setState] = createSignal(props.controller.snapshot())
+  const [spinnerFrame, setSpinnerFrame] = createSignal(0)
   const unsubscribe = props.controller.subscribe(() => setState(props.controller.snapshot()))
   onCleanup(unsubscribe)
 
-  const theme = () => props.api.theme.current
-  const playbackIcon = createMemo(() => {
-    const current = state()
-    if (current.playing && !current.paused) return "⏸"
-    if (current.generating) return "⟳"
-    return "►"
-  })
-  const playbackLabel = createMemo(() => {
-    const current = state()
-    if (current.playing && !current.paused) return "pause"
-    if (current.generating) return "generating"
-    return "play"
+  createEffect(() => {
+    if (!state().generating) {
+      setSpinnerFrame(0)
+      return
+    }
+
+    const timer = setInterval(() => {
+      setSpinnerFrame((frame) => (frame + 1) % SPINNER_FRAMES.length)
+    }, SPINNER_INTERVAL_MS)
+    onCleanup(() => clearInterval(timer))
   })
 
-  return (
-    <text fg={theme().textMuted}>
-      <span>
-        <span style={{ fg: HOTKEY }}>{props.keybinds.print("pause")}</span>{" "}
-        <span style={{ fg: ACTION_ICON }}>{playbackIcon()}</span>{" "}
-        {playbackLabel()}
-      </span>
-      {ACTION_GAP}
-      <span>
-        <span style={{ fg: HOTKEY }}>{props.keybinds.print("skipLatest")}</span>{" "}
-        <span style={{ fg: ACTION_ICON }}>⤋</span>{" "}
-        last
-      </span>
-      {ACTION_GAP}
-      <span>
-        <span style={{ fg: HOTKEY }}>{props.keybinds.print("toggle")}</span>{" "}
-        <span style={{ fg: state().enabled ? theme().success : TOGGLE_OFF }}>●</span> tts
-      </span>
-    </text>
-  )
+  const theme = () => props.api.theme.current
+  const playChip = () => <ShortcutChip keyLabel={props.keybinds.print("pause")} label="play" icon="▶" />
+  const pauseChip = () => <ShortcutChip keyLabel={props.keybinds.print("pause")} label="pause" icon="Ⅱ" />
+  const replayChip = () => <ShortcutChip keyLabel={props.keybinds.print("skipLatest")} label="replay" icon="↻" />
+  const errorChip = () => <span>[<span style={{ fg: ERROR_ICON }}>!</span> error]</span>
+  const toggleChip = () => {
+    const current = state()
+    return (
+      <ShortcutChip
+        keyLabel={props.keybinds.print("toggle")}
+        label={current.enabled ? "on" : "off"}
+        icon={current.enabled ? "●" : "○"}
+        iconColor={current.enabled ? theme().success : TOGGLE_OFF}
+      />
+    )
+  }
+  const content = () => {
+    const current = state()
+    if (current.error) return <>{errorChip()}{ACTION_GAP}{toggleChip()}</>
+    if (!current.enabled) return <>{toggleChip()}</>
+    if (current.paused) return <>{playChip()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
+    if (current.busy) {
+      return <>{current.generating && <span style={{ fg: ACTION_ICON }}>{SPINNER_FRAMES[spinnerFrame()]}</span>}{current.generating && ACTION_GAP}{pauseChip()}{ACTION_GAP}{toggleChip()}</>
+    }
+
+    return <>{playChip()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
+  }
+
+  return <text fg={theme().textMuted}>{content()}</text>
 }
 
 const tui: TuiPlugin = async (api, options) => {
