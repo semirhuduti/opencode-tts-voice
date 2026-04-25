@@ -4,6 +4,9 @@ Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support fo
 
 ![alt text](demo.png)
 
+<a href="https://www.buymeacoffee.com/semirhuduti" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
+
+
 ## ALFA
 
 Still wip, make sure to install sharp versions if you want a bit more reliability.
