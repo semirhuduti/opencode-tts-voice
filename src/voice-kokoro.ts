@@ -10,6 +10,10 @@ const ORT_SYMBOL = Symbol.for("onnxruntime")
 type LoadedRuntime = {
   tts: {
     generate(text: string, input: { voice: string; speed: number }): Promise<{ data: Float32Array; sampling_rate: number }>
+    stream(
+      text: string,
+      input: { voice: string; speed: number },
+    ): AsyncGenerator<{ text: string; data: Float32Array; sampling_rate: number }, void, void>
   }
   device: string
 }
@@ -49,6 +53,10 @@ async function prepareOnnxRuntime() {
   ;(globalThis as Record<PropertyKey, unknown>)[ORT_SYMBOL] = ort
 }
 
+async function loadKokoroModule() {
+  return import("kokoro-js")
+}
+
 export class KokoroRuntime {
   private loaded?: LoadedRuntime
   private loading?: Promise<LoadedRuntime>
@@ -82,6 +90,46 @@ export class KokoroRuntime {
     }
   }
 
+  async *stream(text: string) {
+    this.logger.info("stream start", {
+      textLength: text.length,
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })
+
+    const runtime = await this.load()
+    let segmentCount = 0
+    let totalSamples = 0
+
+    for await (const audio of runtime.tts.stream(text, {
+      voice: this.config.voice,
+      speed: this.config.speed,
+    })) {
+      segmentCount += 1
+      totalSamples += audio.data.length
+      this.logger.info("stream segment", {
+        textLength: audio.text.length,
+        sampleRate: audio.sampling_rate,
+        samples: audio.data.length,
+        segmentCount,
+        device: runtime.device,
+      })
+
+      yield {
+        text: audio.text,
+        audio: audio.data,
+        sampleRate: audio.sampling_rate,
+      }
+    }
+
+    this.logger.info("stream complete", {
+      textLength: text.length,
+      segmentCount,
+      totalSamples,
+      device: runtime.device,
+    })
+  }
+
   private async load() {
     if (this.loaded) return this.loaded
     if (this.loading) return this.loading
@@ -109,7 +157,7 @@ export class KokoroRuntime {
       preferredDevice: this.config.device,
     })
     await prepareOnnxRuntime()
-    const { KokoroTTS } = await import("kokoro-js")
+    const { KokoroTTS, TextSplitterStream } = await loadKokoroModule()
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]
       device: TransformDevice
@@ -136,6 +184,19 @@ export class KokoroRuntime {
               return {
                 data: audio.audio,
                 sampling_rate: audio.sampling_rate,
+              }
+            },
+            stream: async function* (text, input) {
+              const splitter = new TextSplitterStream()
+              splitter.push(text)
+              splitter.close()
+
+              for await (const segment of tts.stream(splitter, input as Parameters<typeof tts.stream>[1])) {
+                yield {
+                  text: segment.text,
+                  data: segment.audio.audio,
+                  sampling_rate: segment.audio.sampling_rate,
+                }
               }
             },
           },

@@ -30,13 +30,35 @@ type StreamBuffer = {
   buffer: string
 }
 
-type CurrentTask = {
+type GenerateTask = {
   item: QueueItem
-  phase: "generate" | "play"
   interrupted: boolean
-  requeue: boolean
+}
+
+type ReadyAudioItem =
+  | {
+      id: number
+      epoch: number
+      sourceItem: QueueItem
+      kind: "audio"
+      text: string
+      file: string
+    }
+  | {
+      id: number
+      epoch: number
+      sourceItem: QueueItem
+      kind: "pause"
+      durationMs: number
+    }
+
+type PlayTask = {
+  item: ReadyAudioItem
+  interrupted: boolean
   child?: ChildProcess
 }
+
+const READY_AUDIO_BUFFER = 1
 
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
@@ -86,12 +108,16 @@ export class VoiceController {
   private readonly runtime: KokoroRuntime
 
   private readonly queue: QueueItem[] = []
-  private current?: CurrentTask
-  private wake?: () => void
+  private readonly readyAudio: ReadyAudioItem[] = []
+  private currentGenerate?: GenerateTask
+  private currentPlay?: PlayTask
+  private queueWake?: () => void
+  private playbackWake?: () => void
   private loopStarted = false
   private disposed = false
   private tmpDir?: Promise<string>
   private queueID = 0
+  private readyAudioID = 0
   private epoch = 0
   private lastToastAt = 0
   private resolvedPlayer?: string
@@ -167,7 +193,9 @@ export class VoiceController {
       paused: this.state.paused,
       busy: this.state.busy,
       queueLength: this.queue.length,
-      hasCurrent: Boolean(this.current),
+      readyAudioLength: this.readyAudio.length,
+      hasCurrentGenerate: Boolean(this.currentGenerate),
+      hasCurrentPlay: Boolean(this.currentPlay),
     })
     if (!this.state.enabled) {
       this.api.ui.toast({ variant: "warning", message: "Speech is disabled" })
@@ -180,7 +208,7 @@ export class VoiceController {
       return
     }
 
-    if (this.current || this.queue.length > 0) {
+    if (this.currentGenerate || this.currentPlay || this.readyAudio.length > 0 || this.queue.length > 0) {
       this.pauseQueue()
       this.api.ui.toast({ variant: "info", message: "Speech paused" })
       return
@@ -278,145 +306,333 @@ export class VoiceController {
     if (this.loopStarted) return
     this.loopStarted = true
 
-    void (async () => {
-      this.log.info("queue loop started")
-      while (!this.disposed) {
-        const item = await this.takeNextItem()
-        if (!item || this.disposed) continue
-
-        this.log.info("queue item start", {
-          itemID: item.id,
-          source: item.source,
-          textLength: item.text.length,
-          pauseMs: item.pauseMs,
-          queueRemaining: this.queue.length,
-        })
-
-        const current: CurrentTask = {
-          item,
-          phase: "generate",
-          interrupted: false,
-          requeue: false,
-        }
-        this.current = current
-        this.syncActivity()
-
-        let file: string | undefined
-        try {
-          const generated = await this.runtime.generate(item.text)
-          if (this.shouldRequeue(current)) {
-            this.log.info("queue item requeued after generate", { itemID: item.id })
-            this.queue.unshift(item)
-            continue
-          }
-          if (this.isStale(item)) {
-            this.log.warn("queue item stale after generate", { itemID: item.id, epoch: item.epoch, currentEpoch: this.epoch })
-            continue
-          }
-
-          file = await this.writeAudioFile(generated.audio, generated.sampleRate)
-          current.phase = "play"
-          this.syncActivity()
-          await this.playFile(file, current)
-
-          if (this.shouldRequeue(current)) {
-            this.log.info("queue item requeued after playback", { itemID: item.id })
-            this.queue.unshift(item)
-            continue
-          }
-          if (this.isStale(item)) {
-            this.log.warn("queue item stale after playback", { itemID: item.id, epoch: item.epoch, currentEpoch: this.epoch })
-            continue
-          }
-
-          if (item.pauseMs > 0) await this.sleep(item.pauseMs)
-          this.log.info("queue item complete", { itemID: item.id })
-        } catch (error) {
-          this.log.error("queue item failed", {
-            itemID: item.id,
-            source: item.source,
-            phase: current.phase,
-            error: formatError(error),
-          })
-          if (!current.interrupted || !current.requeue) {
-            await this.handleRuntimeError(error)
-          }
-        } finally {
-          if (file) await fs.unlink(file).catch(() => undefined)
-          if (this.current === current) this.current = undefined
-          this.syncActivity()
-        }
-      }
-    })()
+    void this.runGenerationLoop()
+    void this.runPlaybackLoop()
   }
 
-  private async takeNextItem() {
+  private async runGenerationLoop() {
+    this.log.info("generation loop started")
     while (!this.disposed) {
-      if (this.state.enabled && !this.state.paused && this.queue.length > 0) {
-        return this.queue.shift()
+      const item = await this.takeNextQueueItem()
+      if (!item || this.disposed) continue
+
+      this.log.info("queue item start", {
+        itemID: item.id,
+        source: item.source,
+        textLength: item.text.length,
+        pauseMs: item.pauseMs,
+        queueRemaining: this.queue.length,
+      })
+
+      const current: GenerateTask = {
+        item,
+        interrupted: false,
+      }
+      this.currentGenerate = current
+      this.syncActivity()
+
+      let segmentCount = 0
+      let queuedPause = false
+      try {
+        for await (const generated of this.runtime.stream(item.text)) {
+          if (!(await this.waitForReadyAudioCapacity(current))) break
+
+          const ready = await this.createAudioReadyItem(item, generated.text, generated.audio, generated.sampleRate)
+          if (!ready) {
+            if (current.interrupted || this.isStale(item)) break
+            continue
+          }
+          if (current.interrupted || this.isStale(item)) {
+            await this.discardReadyAudio([ready])
+            break
+          }
+
+          this.enqueueReadyAudio(ready)
+          segmentCount += 1
+        }
+
+        if (!current.interrupted && !this.isStale(item) && item.pauseMs > 0) {
+          const canQueuePause = await this.waitForReadyAudioCapacity(current)
+          if (canQueuePause && !current.interrupted && !this.isStale(item)) {
+            this.enqueueReadyAudio(this.createPauseReadyAudioItem(item))
+            queuedPause = true
+          }
+        }
+
+        if (current.interrupted) {
+          this.log.info("queue item interrupted", {
+            itemID: item.id,
+            source: item.source,
+            segmentCount,
+          })
+          continue
+        }
+        if (this.isStale(item)) {
+          this.log.warn("queue item stale after generate", { itemID: item.id, epoch: item.epoch, currentEpoch: this.epoch })
+          continue
+        }
+
+        this.log.info("queue item generated", {
+          itemID: item.id,
+          source: item.source,
+          segmentCount,
+          queuedPause,
+          readyAudioLength: this.readyAudio.length,
+        })
+      } catch (error) {
+        this.log.error("queue item failed", {
+          itemID: item.id,
+          source: item.source,
+          phase: "generate",
+          error: formatError(error),
+        })
+        if (!current.interrupted && !this.isStale(item)) {
+          await this.handleRuntimeError(error)
+        }
+      } finally {
+        if (this.currentGenerate === current) this.currentGenerate = undefined
+        this.syncActivity()
+        this.notify()
+      }
+    }
+  }
+
+  private async runPlaybackLoop() {
+    this.log.info("playback loop started")
+    while (!this.disposed) {
+      const item = await this.takeNextReadyAudio()
+      if (!item || this.disposed) continue
+
+      const current: PlayTask = {
+        item,
+        interrupted: false,
+      }
+      this.currentPlay = current
+      this.syncActivity()
+
+      try {
+        if (item.kind === "pause") {
+          this.log.info("playback pause start", {
+            readyAudioID: item.id,
+            sourceItemID: item.sourceItem.id,
+            durationMs: item.durationMs,
+          })
+          if (item.durationMs > 0) await this.sleep(item.durationMs)
+        } else {
+          this.log.info("ready audio start", {
+            readyAudioID: item.id,
+            sourceItemID: item.sourceItem.id,
+            textLength: item.text.length,
+            readyAudioRemaining: this.readyAudio.length,
+          })
+          await this.playFile(item.file, current)
+        }
+
+        if (current.interrupted) {
+          this.log.info("ready audio interrupted", {
+            readyAudioID: item.id,
+            sourceItemID: item.sourceItem.id,
+            kind: item.kind,
+          })
+          continue
+        }
+        if (this.isStale(item.sourceItem)) {
+          this.log.warn("ready audio stale after playback", {
+            readyAudioID: item.id,
+            sourceItemID: item.sourceItem.id,
+            epoch: item.sourceItem.epoch,
+            currentEpoch: this.epoch,
+          })
+          continue
+        }
+
+        this.log.info("ready audio complete", {
+          readyAudioID: item.id,
+          sourceItemID: item.sourceItem.id,
+          kind: item.kind,
+        })
+      } catch (error) {
+        this.log.error("ready audio failed", {
+          readyAudioID: item.id,
+          sourceItemID: item.sourceItem.id,
+          kind: item.kind,
+          phase: "play",
+          error: formatError(error),
+        })
+        if (!current.interrupted && !this.isStale(item.sourceItem)) {
+          await this.handleRuntimeError(error)
+        }
+      } finally {
+        if (item.kind === "audio") await fs.unlink(item.file).catch(() => undefined)
+        if (this.currentPlay === current) this.currentPlay = undefined
+        this.syncActivity()
+        this.notify()
+      }
+    }
+  }
+
+  private async takeNextQueueItem() {
+    while (!this.disposed) {
+      if (this.state.enabled && !this.state.paused && this.bufferedAudioCount() < READY_AUDIO_BUFFER && this.queue.length > 0) {
+        const item = this.queue.shift()
+        if (!item || this.isStale(item)) continue
+        return item
       }
 
       this.syncActivity()
-      await new Promise<void>((resolve) => {
-        this.wake = resolve
-      })
-      this.wake = undefined
+      await this.waitForQueueSignal()
     }
 
     return undefined
   }
 
+  private async waitForReadyAudioCapacity(current: GenerateTask) {
+    while (!this.disposed && !current.interrupted && !this.isStale(current.item)) {
+      if (this.state.enabled && !this.state.paused && this.bufferedAudioCount() < READY_AUDIO_BUFFER) {
+        return true
+      }
+
+      this.syncActivity()
+      await this.waitForQueueSignal()
+    }
+
+    return false
+  }
+
+  private async takeNextReadyAudio() {
+    while (!this.disposed) {
+      if (this.state.enabled && !this.state.paused && this.readyAudio.length > 0) {
+        const item = this.readyAudio.shift()
+        if (!item) continue
+        if (this.isStale(item.sourceItem)) {
+          await this.discardReadyAudio([item])
+          continue
+        }
+        return item
+      }
+
+      this.syncActivity()
+      await this.waitForPlaybackSignal()
+    }
+
+    return undefined
+  }
+
+  private waitForQueueSignal() {
+    return new Promise<void>((resolve) => {
+      this.queueWake = resolve
+    })
+  }
+
+  private waitForPlaybackSignal() {
+    return new Promise<void>((resolve) => {
+      this.playbackWake = resolve
+    })
+  }
+
   private notify() {
-    this.wake?.()
+    const queueWake = this.queueWake
+    this.queueWake = undefined
+    queueWake?.()
+
+    const playbackWake = this.playbackWake
+    this.playbackWake = undefined
+    playbackWake?.()
+
     this.syncActivity()
   }
 
   private syncActivity() {
     this.setState({
-      busy: Boolean(this.current) || this.queue.length > 0,
-      generating: this.current?.phase === "generate",
-      playing: this.current?.phase === "play",
+      busy: Boolean(this.currentGenerate) || Boolean(this.currentPlay) || this.readyAudio.length > 0 || this.queue.length > 0,
+      generating: Boolean(this.currentGenerate),
+      playing: Boolean(this.currentPlay),
     })
   }
 
   private pauseQueue() {
+    const requeued = this.collectBufferedSourceItems()
+    const bufferedReadyAudio = this.readyAudio.splice(0)
     this.log.info("pause queue", {
       queueLength: this.queue.length,
-      hasCurrent: Boolean(this.current),
-      currentPhase: this.current?.phase,
+      readyAudioLength: bufferedReadyAudio.length,
+      hasCurrentGenerate: Boolean(this.currentGenerate),
+      hasCurrentPlay: Boolean(this.currentPlay),
+      requeuedCount: requeued.length,
     })
     this.setState({ paused: true })
-    if (!this.current) return
-    this.current.interrupted = true
-    this.current.requeue = true
-    if (this.current.phase === "play") this.stopChild(this.current.child)
+    if (requeued.length > 0) this.queue.unshift(...requeued)
+
+    if (this.currentGenerate) this.currentGenerate.interrupted = true
+    if (this.currentPlay) {
+      this.currentPlay.interrupted = true
+      if (this.currentPlay.item.kind === "audio") this.stopChild(this.currentPlay.child)
+    }
+
+    if (bufferedReadyAudio.length > 0) {
+      void this.discardReadyAudio(bufferedReadyAudio)
+    }
+    this.notify()
   }
 
   private resumeQueue() {
-    this.log.info("resume queue", { queueLength: this.queue.length })
+    this.log.info("resume queue", {
+      queueLength: this.queue.length,
+      readyAudioLength: this.readyAudio.length,
+    })
     this.setState({ paused: false })
     this.notify()
   }
 
   private async resetQueue(requeueCurrent: boolean) {
+    const requeued = requeueCurrent ? this.cloneQueueItems(this.collectBufferedSourceItems(), this.epoch + 1) : []
+    const bufferedReadyAudio = this.readyAudio.splice(0)
     this.log.info("reset queue", {
       requeueCurrent,
       queueLength: this.queue.length,
-      hasCurrent: Boolean(this.current),
+      readyAudioLength: bufferedReadyAudio.length,
+      hasCurrentGenerate: Boolean(this.currentGenerate),
+      hasCurrentPlay: Boolean(this.currentPlay),
+      requeuedCount: requeued.length,
       nextEpoch: this.epoch + 1,
     })
     this.epoch += 1
     this.queue.length = 0
-    if (this.current) {
-      this.current.interrupted = true
-      this.current.requeue = requeueCurrent
-      if (this.current.phase === "play") this.stopChild(this.current.child)
+    if (requeued.length > 0) this.queue.push(...requeued)
+
+    if (this.currentGenerate) this.currentGenerate.interrupted = true
+    if (this.currentPlay) {
+      this.currentPlay.interrupted = true
+      if (this.currentPlay.item.kind === "audio") this.stopChild(this.currentPlay.child)
     }
+
+    await this.discardReadyAudio(bufferedReadyAudio)
     this.notify()
   }
 
-  private shouldRequeue(current: CurrentTask) {
-    return current.requeue && this.state.paused && current.item.epoch === this.epoch && this.state.enabled
+  private collectBufferedSourceItems() {
+    const items: QueueItem[] = []
+    const seen = new Set<number>()
+
+    const add = (item: QueueItem | undefined) => {
+      if (!item || this.isStale(item) || seen.has(item.id)) return
+      seen.add(item.id)
+      items.push(item)
+    }
+
+    add(this.currentPlay?.item.sourceItem)
+    for (const item of this.readyAudio) add(item.sourceItem)
+    add(this.currentGenerate?.item)
+
+    return items
+  }
+
+  private cloneQueueItems(items: QueueItem[], epoch: number) {
+    return items.map((item) => ({ ...item, epoch }))
+  }
+
+  private bufferedAudioCount() {
+    return this.readyAudio.filter((item) => item.kind === "audio").length
   }
 
   private isStale(item: QueueItem) {
@@ -442,6 +658,64 @@ export class VoiceController {
       queueLength: this.queue.length,
       preview: text.slice(0, 80),
     })
+  }
+
+  private enqueueReadyAudio(item: ReadyAudioItem) {
+    this.readyAudio.push(item)
+    if (item.kind === "pause") {
+      this.log.info("pause queued", {
+        readyAudioID: item.id,
+        sourceItemID: item.sourceItem.id,
+        durationMs: item.durationMs,
+        readyAudioLength: this.readyAudio.length,
+      })
+    } else {
+      this.log.info("audio queued", {
+        readyAudioID: item.id,
+        sourceItemID: item.sourceItem.id,
+        textLength: item.text.length,
+        readyAudioLength: this.readyAudio.length,
+      })
+    }
+    this.notify()
+  }
+
+  private createPauseReadyAudioItem(sourceItem: QueueItem): ReadyAudioItem {
+    return {
+      id: this.readyAudioID++,
+      epoch: sourceItem.epoch,
+      sourceItem,
+      kind: "pause",
+      durationMs: sourceItem.pauseMs,
+    }
+  }
+
+  private async createAudioReadyItem(sourceItem: QueueItem, text: string, audio: Float32Array, sampleRate: number) {
+    const id = this.readyAudioID++
+    const file = await this.writeAudioFile(audio, sampleRate, id)
+    if (this.isStale(sourceItem)) {
+      await fs.unlink(file).catch(() => undefined)
+      return undefined
+    }
+
+    return {
+      id,
+      epoch: sourceItem.epoch,
+      sourceItem,
+      kind: "audio" as const,
+      text,
+      file,
+    }
+  }
+
+  private async discardReadyAudio(items: ReadyAudioItem[]) {
+    if (!items.length) return
+    await Promise.all(
+      items.map((item) => {
+        if (item.kind !== "audio") return Promise.resolve()
+        return fs.unlink(item.file).catch(() => undefined)
+      }),
+    )
   }
 
   private isVoiceBlockEnabled(block: VoiceBlock) {
@@ -686,10 +960,10 @@ export class VoiceController {
     return prepared || undefined
   }
 
-  private async writeAudioFile(audio: Float32Array, sampleRate: number) {
+  private async writeAudioFile(audio: Float32Array, sampleRate: number, id: number) {
     const dir = await this.ensureTempDir()
     const trimmed = trimSilence(audio, sampleRate, this.config.trimSilenceThreshold, this.config.leadingAudioPadMs)
-    const file = path.join(dir, `${Date.now()}-${this.queueID}.wav`)
+    const file = path.join(dir, `${Date.now()}-${id}.wav`)
     await fs.writeFile(file, wavFromFloat32(trimmed, sampleRate))
     this.log.info("audio file written", {
       file,
@@ -739,7 +1013,7 @@ export class VoiceController {
     )
   }
 
-  private async playFile(file: string, current: CurrentTask) {
+  private async playFile(file: string, current: PlayTask) {
     const playerBin = this.resolvePlayerBin()
     await new Promise<void>((resolve, reject) => {
       const args = this.buildPlayerArgs(file)
@@ -816,9 +1090,13 @@ export class VoiceController {
     this.setState({ error: message })
 
     if (isMissingBinary(error)) {
+      const bufferedReadyAudio = this.readyAudio.splice(0)
       this.api.kv.set(KV_ENABLED, false)
       this.setState({ enabled: false, paused: false })
       this.queue.length = 0
+      if (this.currentGenerate) this.currentGenerate.interrupted = true
+      if (this.currentPlay) this.currentPlay.interrupted = true
+      await this.discardReadyAudio(bufferedReadyAudio)
       this.toastError(`Playback failed. Command not found: ${this.config.playerBin}`)
       return
     }
