@@ -5,6 +5,8 @@ type TransformDevice = "auto" | "cpu" | "gpu" | "cuda" | "dml" | "wasm" | "webgp
 
 type RuntimeStatus = Partial<Pick<VoiceState, "device" | "error">>
 
+const ORT_SYMBOL = Symbol.for("onnxruntime")
+
 type LoadedRuntime = {
   tts: {
     generate(text: string, input: { voice: string; speed: number }): Promise<{ data: Float32Array; sampling_rate: number }>
@@ -39,6 +41,12 @@ function candidateDevices(device: VoiceConfig["device"]): TransformDevice[] {
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
   return String(error)
+}
+
+async function prepareOnnxRuntime() {
+  const ort = await import("onnxruntime-node")
+  ort.env.logLevel = "error"
+  ;(globalThis as Record<PropertyKey, unknown>)[ORT_SYMBOL] = ort
 }
 
 export class KokoroRuntime {
@@ -100,9 +108,7 @@ export class KokoroRuntime {
       dtype: this.config.dtype,
       preferredDevice: this.config.device,
     })
-    const { env } = await import("@huggingface/transformers")
-    // Suppress native ORT warnings during first session init while keeping actual errors visible.
-    env.backends.onnx.logLevel = "error"
+    await prepareOnnxRuntime()
     const { KokoroTTS } = await import("kokoro-js")
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]
