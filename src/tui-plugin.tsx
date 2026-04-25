@@ -62,14 +62,14 @@ function ShortcutHint(props: {
   const theme = () => props.api.theme.current
   const playbackIcon = createMemo(() => {
     const current = state()
-    if (current.generating) return "⟳"
     if (current.playing && !current.paused) return "⏸"
+    if (current.generating) return "⟳"
     return "►"
   })
   const playbackLabel = createMemo(() => {
     const current = state()
-    if (current.generating) return "generating"
     if (current.playing && !current.paused) return "pause"
+    if (current.generating) return "generating"
     return "play"
   })
 

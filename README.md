@@ -2,6 +2,8 @@
 
 Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support for controlling playback.
 
+![alt text](image.png)
+
 ## ALFA
 
 Still wip, make sure to install sharp versions if you want a bit more reliability.
