@@ -109,6 +109,7 @@ export class TtsHelperRuntime {
       type: "module",
       env: {
         ...process.env,
+        OPENCODE_TTS_VOICE_HELPER_MODE: "worker",
         OPENCODE_TTS_VOICE_LOG_LEVEL: process.env.OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL ?? "silent",
       },
     } as WorkerOptions & { env: Record<string, string | undefined> })
@@ -150,6 +151,12 @@ export class TtsHelperRuntime {
     if (!request || request.epoch !== message.epoch) return
 
     if (message.type === "segment") {
+      this.logger.info("helper segment received", {
+        requestID: message.id,
+        epoch: message.epoch,
+        textLength: message.text.length,
+        file: message.file,
+      })
       request.queue.push({ text: message.text, file: message.file })
       this.wake(request)
       return

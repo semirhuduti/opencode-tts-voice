@@ -188,6 +188,7 @@ async function main() {
 }
 
 function startWorkerMode() {
+  logger.info("helper worker mode started")
   send = (message) => {
     postMessage(message)
   }
@@ -200,6 +201,11 @@ function startWorkerMode() {
 }
 
 function startProcessMode() {
+  if (process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker") {
+    throw new Error("Refusing to start helper process mode while worker mode is requested")
+  }
+
+  logger.info("helper process mode started")
   process.once("SIGTERM", () => {
     void cleanup(true)
   })
@@ -210,7 +216,7 @@ function startProcessMode() {
   })
 }
 
-if (typeof self !== "undefined" && self !== globalThis && typeof postMessage === "function") {
+if (process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker") {
   startWorkerMode()
 } else {
   startProcessMode()
