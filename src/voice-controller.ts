@@ -10,7 +10,7 @@ import { trimSilence, wavFromFloat32 } from "./voice-audio.js"
 import { KokoroRuntime } from "./voice-kokoro.js"
 import { createLogger } from "./voice-log.js"
 import { drainStreamChunks, prepareSpeechText, splitPlaybackText } from "./voice-text.js"
-import type { SpeechSource, VoiceConfig, VoiceState } from "./voice-types.js"
+import type { SpeechSource, VoiceBlock, VoiceConfig, VoiceState } from "./voice-types.js"
 
 type Listener = () => void
 
@@ -25,6 +25,7 @@ type QueueItem = {
 type StreamBuffer = {
   sessionID: string
   messageID: string
+  block: Extract<VoiceBlock, "reason" | "message">
   lastText: string
   buffer: string
 }
@@ -105,6 +106,7 @@ export class VoiceController {
       enabled: api.kv.get(KV_ENABLED, true),
       paused: false,
       busy: false,
+      generating: false,
       playing: false,
       backend: config.playerBin,
       device: config.device,
@@ -371,6 +373,7 @@ export class VoiceController {
   private syncActivity() {
     this.setState({
       busy: Boolean(this.current) || this.queue.length > 0,
+      generating: this.current?.phase === "generate",
       playing: this.current?.phase === "play",
     })
   }
@@ -440,6 +443,27 @@ export class VoiceController {
     })
   }
 
+  private isVoiceBlockEnabled(block: VoiceBlock) {
+    return this.config.voiceBlocks.includes(block)
+  }
+
+  private blockForPart(part: Part): Extract<VoiceBlock, "reason" | "message"> | undefined {
+    if (part.type === "reasoning") return "reason"
+    if (part.type === "text" && !part.synthetic && !part.ignored) return "message"
+    return undefined
+  }
+
+  private blockForDelta(event: { messageID: string; partID: string; field: string }) {
+    if (event.field === "reasoning_content" || event.field === "reasoning_details") return "reason" as const
+    if (event.field !== "text") return undefined
+
+    const buffered = this.streams.get(event.partID)
+    if (buffered) return buffered.block
+
+    const part = this.lookupPart(event.messageID, event.partID)
+    return part ? this.blockForPart(part) : "message"
+  }
+
   private onMessageUpdated(message: Message) {
     const completed = "completed" in message.time && Boolean(message.time.completed)
     this.messages.set(message.id, message)
@@ -455,7 +479,10 @@ export class VoiceController {
   }
 
   private onMessagePartDelta(event: { sessionID: string; messageID: string; partID: string; field: string; delta: string }) {
-    if (!this.config.readResponses || event.field !== "text") return
+    if (!this.config.readResponses) return
+
+    const block = this.blockForDelta(event)
+    if (!block || !this.isVoiceBlockEnabled(block)) return
 
     const message = this.lookupMessage(event.sessionID, event.messageID)
     if (!message || message.role !== "assistant" || message.summary || !this.state.enabled) {
@@ -474,9 +501,11 @@ export class VoiceController {
     const stream = this.streams.get(event.partID) ?? {
       sessionID: event.sessionID,
       messageID: event.messageID,
+      block,
       lastText: "",
       buffer: "",
     }
+    stream.block = block
 
     stream.lastText += event.delta
     stream.buffer += event.delta
@@ -501,7 +530,10 @@ export class VoiceController {
   }
 
   private onMessagePartUpdated(part: Part) {
-    if (part.type !== "text" || part.synthetic || part.ignored) return
+    if (part.type !== "text" && part.type !== "reasoning") return
+
+    const block = this.blockForPart(part)
+    if (!block) return
 
     const message = this.lookupMessage(part.sessionID, part.messageID)
     if (!message || message.role !== "assistant" || message.summary) {
@@ -520,16 +552,18 @@ export class VoiceController {
     const stream = this.streams.get(part.id) ?? {
       sessionID: part.sessionID,
       messageID: part.messageID,
+      block,
       lastText: "",
       buffer: "",
     }
+    stream.block = block
 
     if (text.startsWith(stream.lastText)) {
       stream.buffer += text.slice(stream.lastText.length)
     }
     stream.lastText = text
 
-    if (this.state.enabled && this.config.readResponses) {
+    if (this.state.enabled && this.config.readResponses && this.isVoiceBlockEnabled(block)) {
       const drained = drainStreamChunks(stream.buffer, this.config, Boolean(part.time?.end))
       stream.buffer = drained.rest
       if (drained.chunks.length > 0 || part.time?.end) {
@@ -565,7 +599,7 @@ export class VoiceController {
   }
 
   private onSessionIdle(sessionID: string) {
-    if (!this.state.enabled || !this.config.announceOnIdle) return
+    if (!this.state.enabled || !this.config.announceOnIdle || !this.isVoiceBlockEnabled("idle")) return
     const active = this.activeSessionID()
     if (active && active !== sessionID) return
 
@@ -575,6 +609,10 @@ export class VoiceController {
       this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "idle")
     }
     this.notify()
+  }
+
+  private lookupPart(messageID: string, partID: string) {
+    return this.api.state.part(messageID).find((part) => part.id === partID)
   }
 
   private lookupMessage(sessionID: string, messageID: string) {
@@ -628,8 +666,11 @@ export class VoiceController {
     const parts = this.api.state.part(messageID)
     const text = parts
       .filter(
-        (part): part is Extract<(typeof parts)[number], { type: "text" }> =>
-          part.type === "text" && !part.synthetic && !part.ignored,
+        (part): part is Extract<(typeof parts)[number], { type: "text" | "reasoning" }> => {
+          if (part.type === "reasoning") return this.isVoiceBlockEnabled("reason")
+          if (part.type === "text") return this.isVoiceBlockEnabled("message") && !part.synthetic && !part.ignored
+          return false
+        },
       )
       .map((part) => part.text)
       .join(" ")

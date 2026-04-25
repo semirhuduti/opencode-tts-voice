@@ -48,6 +48,7 @@ Example `~/.config/opencode/tui.json`:
         "voice": "am_adam",
         "speed": 1.1,
         "dtype": "q4",
+        "voiceBlocks": ["reason", "message", "idle"],
         "shortcuts": {
           "pause": "f6",
           "skipLatest": "f7",
@@ -78,6 +79,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `readResponses` | boolean | `true` | Speak streamed assistant responses. |
 | `announceOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
 | `idleMessage` | string | `Task completed.` | Idle message text. |
+| `voiceBlocks` | string[] | `["reason", "message", "idle"]` | Fine-grained speech source filter. Accepted values: `reason`, `message`, `idle`. |
 | `speechChunkLength` | number | `1000` | Maximum chunk size sent to the TTS generator. |
 | `streamSoftLimit` | number | `180` | Target flush size for streamed assistant text. |
 | `maxTextLength` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
@@ -97,7 +99,19 @@ Default TUI shortcuts:
 - `f7`: replay the latest assistant message
 - `f8`: enable or disable speech
 
-When the TUI entrypoint is active, the plugin also renders a small shortcut hint near the chat prompt.
+When the TUI entrypoint is active, the plugin also renders a small shortcut hint near the chat prompt using these symbols:
+
+- `►` for play
+- `⏸` for pause
+- `▁ ▂ ▃ ▄ ▅ ▆ ▇ █ ▇ ▆ ▅ ▄ ▃ ▁` animated while audio is generating
+- `↠` for replay latest
+- `●` green when TTS is enabled, gray when it is disabled
+
+`voiceBlocks` works as a source filter on top of the existing booleans:
+
+- `readResponses` still enables or disables streamed response playback
+- `announceOnIdle` still enables or disables idle announcements
+- `voiceBlocks` decides which of `reason`, `message`, and `idle` are allowed to be spoken when those features are active
 
 ## Publish Notes
 

@@ -1,5 +1,12 @@
 import { DEFAULT_CONFIG } from "./voice-constants.js"
-import type { DevicePreference, KokoroDType, ShortcutConfig, VoiceConfig, VoicePluginOptions } from "./voice-types.js"
+import type {
+  DevicePreference,
+  KokoroDType,
+  ShortcutConfig,
+  VoiceBlock,
+  VoiceConfig,
+  VoicePluginOptions,
+} from "./voice-types.js"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
@@ -75,6 +82,24 @@ function readDType(value: unknown): KokoroDType {
   }
 }
 
+function isVoiceBlock(value: unknown): value is VoiceBlock {
+  return value === "reason" || value === "message" || value === "idle"
+}
+
+function readVoiceBlocks(value: unknown): VoiceBlock[] {
+  if (Array.isArray(value) && value.length === 0) return []
+
+  const input = Array.isArray(value) ? value : typeof value === "string" ? [value] : DEFAULT_CONFIG.voiceBlocks
+  const next: VoiceBlock[] = []
+
+  for (const item of input) {
+    if (!isVoiceBlock(item) || next.includes(item)) continue
+    next.push(item)
+  }
+
+  return next.length ? next : [...DEFAULT_CONFIG.voiceBlocks]
+}
+
 function readShortcuts(value: unknown): ShortcutConfig {
   if (!isRecord(value)) return { ...DEFAULT_CONFIG.shortcuts }
   return {
@@ -85,7 +110,7 @@ function readShortcuts(value: unknown): ShortcutConfig {
 }
 
 export function resolveVoiceConfig(options: VoicePluginOptions | undefined): VoiceConfig {
-  const input = isRecord(options) ? options : {}
+  const input: Record<string, unknown> = isRecord(options) ? options : {}
   const speechChunkLength = readInteger(input.speechChunkLength, DEFAULT_CONFIG.speechChunkLength, 32)
   const streamSoftLimit = Math.min(
     speechChunkLength,
@@ -104,6 +129,7 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     readResponses: readBoolean(input.readResponses, DEFAULT_CONFIG.readResponses),
     announceOnIdle: readBoolean(input.announceOnIdle, DEFAULT_CONFIG.announceOnIdle),
     idleMessage: readString(input.idleMessage, DEFAULT_CONFIG.idleMessage),
+    voiceBlocks: readVoiceBlocks(input.voiceBlocks ?? input["voice-blocks"]),
     speechChunkLength,
     streamSoftLimit,
     maxTextLength: readInteger(input.maxTextLength, DEFAULT_CONFIG.maxTextLength, 64),

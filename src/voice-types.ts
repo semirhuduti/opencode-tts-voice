@@ -4,6 +4,8 @@ export type KokoroRuntimeDevice = "cpu" | "wasm" | "webgpu"
 
 export type KokoroDType = "fp32" | "fp16" | "q4" | "q4f16" | "q8"
 
+export type VoiceBlock = "reason" | "message" | "idle"
+
 export type VoicePluginOptions = {
   voice?: unknown
   speed?: unknown
@@ -16,6 +18,7 @@ export type VoicePluginOptions = {
   readResponses?: unknown
   announceOnIdle?: unknown
   idleMessage?: unknown
+  voiceBlocks?: unknown
   speechChunkLength?: unknown
   streamSoftLimit?: unknown
   maxTextLength?: unknown
@@ -44,6 +47,7 @@ export type VoiceConfig = {
   readResponses: boolean
   announceOnIdle: boolean
   idleMessage: string
+  voiceBlocks: VoiceBlock[]
   speechChunkLength: number
   streamSoftLimit: number
   maxTextLength: number
@@ -58,6 +62,7 @@ export type VoiceState = {
   enabled: boolean
   paused: boolean
   busy: boolean
+  generating: boolean
   playing: boolean
   backend: string
   device: string
