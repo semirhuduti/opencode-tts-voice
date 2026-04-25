@@ -84,8 +84,8 @@ function normalizeSpeechText(text: string) {
 function ensureSentence(text: string) {
   const next = text.trim()
   if (!next) return ""
-  if (next.endsWith(",")) return `${next.slice(0, -1)}.`
-  return /[.!?;:]$/.test(next) ? next : `${next}.`
+  if (/[,;:]$/.test(next)) return `${next.slice(0, -1)}.`
+  return /[.!?]$/.test(next) ? next : `${next}.`
 }
 
 function isCodeFenceLine(text: string) {
@@ -207,29 +207,37 @@ function speakInlineCode(value: string) {
 
 function stripMarkdownEmphasis(text: string) {
   return text
-    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
-    .replace(/__([^_\n]+)__/g, "$1")
-    .replace(/~~([^~\n]+)~~/g, "$1")
-    .replace(/(^|\W)\*([^*\n]+)\*(?=\W|$)/g, "$1$2")
-    .replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, "$1$2")
+    .replace(/\*\*\s*([^*\n]*?\S[^*\n]*?)\s*\*\*/g, "$1")
+    .replace(/__\s*([^_\n]*?\S[^_\n]*?)\s*__/g, "$1")
+    .replace(/~~\s*([^~\n]*?\S[^~\n]*?)\s*~~/g, "$1")
+    .replace(/(^|\W)\*\s*([^*\n]*?\S[^*\n]*?)\s*\*(?=\W|$)/g, "$1$2")
+    .replace(/(^|\W)_\s*([^_\n]*?\S[^_\n]*?)\s*_(?=\W|$)/g, "$1$2")
+}
+
+function replaceCommaSeparators(text: string) {
+  return text.replace(/([.!?])?,\s+(?:(?:and|or)\s+)?/gi, (_match, punctuation: string | undefined) => {
+    return punctuation ? `${punctuation} ` : ". "
+  })
 }
 
 function sanitizeInline(text: string) {
-  return rewritePaths(
-    stripMarkdownEmphasis(text)
-      .replace(/\\([\\`*_[\]{}()#+\-.!>])/g, "$1")
-      .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_match, alt: string) => alt.trim() || IMAGE_PLACEHOLDER)
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
-      .replace(/<https?:\/\/[^>]+>/gi, " ")
-      .replace(URL_PATTERN, " ")
-      .replace(UUID_PATTERN, IDENTIFIER_PLACEHOLDER)
-      .replace(LONG_HEX_PATTERN, IDENTIFIER_PLACEHOLDER)
-      .replace(/`([^`\n]+)`/g, (_match, code: string) => speakInlineCode(code))
-      .replace(/&/g, " and ")
-      .replace(/(?:->|=>)/g, " to ")
-      .replace(/[<>]/g, " ")
-      .replace(/[`]/g, " "),
+  return replaceCommaSeparators(
+    rewritePaths(
+      stripMarkdownEmphasis(text)
+        .replace(/\\([\\`*_[\]{}()#+\-.!>])/g, "$1")
+        .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_match, alt: string) => alt.trim() || IMAGE_PLACEHOLDER)
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+        .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
+        .replace(/<https?:\/\/[^>]+>/gi, " ")
+        .replace(URL_PATTERN, " ")
+        .replace(UUID_PATTERN, IDENTIFIER_PLACEHOLDER)
+        .replace(LONG_HEX_PATTERN, IDENTIFIER_PLACEHOLDER)
+        .replace(/`([^`\n]+)`/g, (_match, code: string) => speakInlineCode(code))
+        .replace(/&/g, " and ")
+        .replace(/(?:->|=>)/g, " to ")
+        .replace(/[<>]/g, " ")
+        .replace(/[`]/g, " "),
+    ),
   )
 }
 

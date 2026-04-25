@@ -37,6 +37,94 @@ describe("sanitizeSpeechText", () => {
   it("turns line breaks into sentence boundaries", () => {
     expect(sanitizeSpeechText("First line\nSecond line")).toBe("First line.\nSecond line.")
   })
+
+  it("converts comma separated prose to period separated speech", () => {
+    expect(sanitizeSpeechText("One, two, and three")).toBe("One. two. three.")
+  })
+
+  it("strips spaced emphasis markers", () => {
+    expect(sanitizeSpeechText("This has ** bold text ** and * italic text *")).toBe(
+      "This has bold text and italic text.",
+    )
+  })
+
+  it("sanitizes a broad markdown sample", () => {
+    const markdown = `# 1. Main Heading
+
+## 2. Subheading
+
+### 3. Smaller Heading
+
+This paragraph has ** bold text **, * italic text *, \`inline code\`, and a [link to example](https://example.com).
+
+> This is a blockquote.
+>
+> It spans multiple lines.
+
+- Bullet item one
+- Bullet item two with \`src/voice-text.ts\`
+  - Nested bullet item
+  - Nested bullet item with **bold** and *italic*
+
+1. Numbered item one
+2. Numbered item two
+3. Numbered item three
+
+- [x] Completed task
+- [ ] Pending task
+
+---
+
+| Name | Value | Notes |
+| --- | --- | --- |
+| voice | Kokoro | TTS engine |
+| file | \`src/voice-controller.ts\` | local source |
+| path | \`/home/semir/workspace/opencode-voice-tts/src/voice-text.ts\` | absolute path |
+
+\`\`\`ts
+function demo(value: string) {
+  return \`Heading: \${value}\`
+}
+
+console.log(demo("example"))
+\`\`\`
+
+Inline technical text: \`npm run build\`, \`voice-sanitize.ts\`, and \`dist/tui-plugin.js\`.
+
+![Alt text for image](https://example.com/image.png)
+
+---
+
+## 4. Another Heading
+
+Some final text with a [relative path reference](./README.md) and a URL: https://opencode.ai/docs/plugins/`
+
+    expect(sanitizeSpeechText(markdown)).toBe(
+      [
+        "Heading, 1. Main Heading.",
+        "Heading, 2. Subheading.",
+        "Heading, 3. Smaller Heading.",
+        "This paragraph has bold text. italic text. inline code. a link to example.",
+        "This is a blockquote.",
+        "It spans multiple lines.",
+        "Bullet item one.",
+        "Bullet item two with the TypeScript file voice text in the source folder.",
+        "Nested bullet item.",
+        "Nested bullet item with bold and italic.",
+        "Numbered item one.",
+        "Numbered item two.",
+        "Numbered item three.",
+        "Completed task.",
+        "Pending task.",
+        "Omitted table.",
+        "Omitted code block.",
+        "Inline technical text: Omitted inline code. the TypeScript file voice sanitize. the JavaScript file tui plugin in the distribution folder.",
+        "Alt text for image.",
+        "Heading, 4. Another Heading.",
+        "Some final text with a relative path reference and a URL.",
+      ].join("\n"),
+    )
+  })
 })
 
 describe("SpeechSanitizer", () => {
