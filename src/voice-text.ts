@@ -1,4 +1,5 @@
 import type { PreparedChunk, VoiceConfig } from "./voice-types.js"
+import { sanitizeSpeechText } from "./voice-sanitize.js"
 
 const STRONG_BOUNDARY = /[.!?\n]/
 const CLAUSE_BOUNDARY = /[,;:]/
@@ -9,24 +10,18 @@ function clampTextLength(text: string, maxTextLength: number) {
   return `${text.slice(0, Math.max(0, maxTextLength - 3)).trimEnd()}...`
 }
 
-export function prepareSpeechText(text: string, maxTextLength: number) {
-  const cleaned = text
-    .replace(/```[\s\S]*?```/g, " Code omitted. ")
-    .replace(/```+/g, " ")
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/^\s*[-*+]\s+/gm, "")
-    .replace(/^\s*\d+\.\s+/gm, "")
-    .replace(/\|/g, " ")
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/[*_~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
+function normalizePreparedText(text: string) {
+  return text.replace(/\s+/g, " ").trim()
+}
 
+export function prepareSanitizedSpeechText(text: string, maxTextLength: number) {
+  const cleaned = normalizePreparedText(text)
   if (!cleaned) return ""
   return clampTextLength(cleaned, maxTextLength)
+}
+
+export function prepareSpeechText(text: string, maxTextLength: number) {
+  return prepareSanitizedSpeechText(sanitizeSpeechText(text), maxTextLength)
 }
 
 function classifyPause(text: string, config: VoiceConfig) {
@@ -84,7 +79,7 @@ function takeChunk(text: string, config: VoiceConfig, final: boolean) {
 
   const raw = input.slice(0, cut).trim()
   const rest = input.slice(cut).trimStart()
-  const prepared = prepareSpeechText(raw, config.maxTextLength)
+  const prepared = prepareSanitizedSpeechText(raw, config.maxTextLength)
 
   return {
     rest,

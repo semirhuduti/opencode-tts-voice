@@ -7,6 +7,7 @@ import * as path from "node:path"
 import { KV_ENABLED, PLAYER_CANDIDATES, PLAYER_DEFAULT_ARGS } from "./voice-constants.js"
 import { TtsHelperRuntime } from "./voice-helper-runtime.js"
 import { createLogger } from "./voice-log.js"
+import { createSpeechSanitizer, type SpeechSanitizer } from "./voice-sanitize.js"
 import { drainStreamChunks, prepareSpeechText, splitPlaybackText } from "./voice-text.js"
 import type { SpeechSource, VoiceBlock, VoiceConfig, VoiceState } from "./voice-types.js"
 
@@ -26,6 +27,7 @@ type StreamBuffer = {
   block: Extract<VoiceBlock, "reason" | "message">
   textLength: number
   buffer: string
+  sanitizer: SpeechSanitizer
 }
 
 type GenerateTask = {
@@ -69,6 +71,12 @@ const MAX_STREAM_QUEUE_ITEMS = 32
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
   return String(error)
+}
+
+function appendSpeechBuffer(buffer: string, text: string) {
+  const next = text.trim()
+  if (!next) return buffer
+  return buffer ? `${buffer} ${next}` : next
 }
 
 function isMissingBinary(error: unknown): error is NodeJS.ErrnoException {
@@ -869,11 +877,12 @@ export class VoiceController {
       block,
       textLength: 0,
       buffer: "",
+      sanitizer: createSpeechSanitizer(),
     }
     stream.block = block
 
     stream.textLength += event.delta.length
-    stream.buffer += event.delta
+    stream.buffer = appendSpeechBuffer(stream.buffer, stream.sanitizer.push(event.delta, false))
 
     const drained = drainStreamChunks(stream.buffer, this.config, false)
     stream.buffer = drained.rest
@@ -920,15 +929,21 @@ export class VoiceController {
       block,
       textLength: 0,
       buffer: "",
+      sanitizer: createSpeechSanitizer(),
     }
     stream.block = block
 
+    let nextText = ""
     if (text.length >= stream.textLength) {
-      stream.buffer += text.slice(stream.textLength)
+      nextText = text.slice(stream.textLength)
     } else {
-      stream.buffer = text
+      stream.buffer = ""
+      stream.sanitizer = createSpeechSanitizer()
+      nextText = text
     }
     stream.textLength = text.length
+    const finalFlush = Boolean(part.time?.end)
+    stream.buffer = appendSpeechBuffer(stream.buffer, stream.sanitizer.push(nextText, finalFlush))
 
     if (this.state.enabled && this.config.readResponses && this.isVoiceBlockEnabled(block)) {
       const drained = drainStreamChunks(stream.buffer, this.config, Boolean(part.time?.end))
