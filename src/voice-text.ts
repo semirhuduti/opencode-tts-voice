@@ -2,8 +2,6 @@ import type { PreparedChunk, VoiceConfig } from "./voice-types.js"
 import { sanitizeSpeechText } from "./voice-sanitize.js"
 
 const STRONG_BOUNDARY = /[.!?\n]/
-const CLAUSE_BOUNDARY = /[,;:]/
-const TRAILING_CLOSERS = /[\s"')\]}]+/
 
 function clampTextLength(text: string, maxTextLength: number) {
   if (text.length <= maxTextLength) return text
@@ -11,7 +9,12 @@ function clampTextLength(text: string, maxTextLength: number) {
 }
 
 function normalizePreparedText(text: string) {
-  return text.replace(/\s+/g, " ").trim()
+  return text
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }
 
 export function prepareSanitizedSpeechText(text: string, maxTextLength: number) {
@@ -29,33 +32,10 @@ function classifyPause(text: string, config: VoiceConfig) {
   return config.defaultChunkPauseMs
 }
 
-function consumeBoundary(text: string, index: number) {
-  let next = index
-  while (next < text.length) {
-    const char = text[next]
-    if (!char) break
-    if (TRAILING_CLOSERS.test(char)) {
-      next += 1
-      continue
-    }
-    break
-  }
-  return next
-}
-
 function findBoundary(text: string, minCut: number, maxCut: number) {
   for (let index = maxCut - 1; index >= minCut - 1; index -= 1) {
     const char = text[index]
-    if (char && STRONG_BOUNDARY.test(char)) return consumeBoundary(text, index + 1)
-  }
-
-  for (let index = maxCut - 1; index >= minCut - 1; index -= 1) {
-    const char = text[index]
-    if (char && CLAUSE_BOUNDARY.test(char)) return consumeBoundary(text, index + 1)
-  }
-
-  for (let index = maxCut - 1; index >= minCut - 1; index -= 1) {
-    if (/\s/.test(text[index] ?? "")) return index + 1
+    if (char && STRONG_BOUNDARY.test(char)) return index + 1
   }
 
   return undefined
@@ -65,6 +45,23 @@ function takeChunk(text: string, config: VoiceConfig, final: boolean) {
   const input = text.trimStart()
   if (!input) return undefined
 
+  const newline = input.indexOf("\n")
+  if (newline >= 0 && (final || newline > 0)) {
+    const raw = input.slice(0, newline).trim()
+    const rest = input.slice(newline + 1).trimStart()
+    const prepared = prepareSanitizedSpeechText(raw, config.maxTextLength)
+
+    return {
+      rest,
+      chunk: prepared
+        ? {
+            text: prepared,
+            pauseMs: config.clauseChunkPauseMs,
+          }
+        : undefined,
+    }
+  }
+
   const hardLimit = Math.min(config.speechChunkLength, input.length)
   const softLimit = Math.min(config.streamSoftLimit, hardLimit)
 
@@ -72,7 +69,7 @@ function takeChunk(text: string, config: VoiceConfig, final: boolean) {
 
   let cut = findBoundary(input, softLimit, hardLimit)
   if (!cut && (final || input.length >= config.speechChunkLength)) {
-    cut = findBoundary(input, 1, hardLimit) ?? Math.min(hardLimit, input.length)
+    cut = findBoundary(input, 1, hardLimit)
   }
   if (!cut && final) cut = input.length
   if (!cut) return undefined

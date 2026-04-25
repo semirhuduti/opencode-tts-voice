@@ -73,16 +73,19 @@ function normalizeSpeechText(text: string) {
     .replace(/\u00a0/g, " ")
     .replace(/[\t ]+/g, " ")
     .replace(/\s+([,.!?;:])/g, "$1")
-    .replace(/([,.!?;:])(?=\S)/g, "$1 ")
-    .replace(/\s+/g, " ")
-    .replace(/\b(?:and|or)\s*$/i, "")
+    .replace(/([,.!?;:])(?=[^\s\n])/g, "$1 ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\b(?:and|or)[,.!?;:]*\s*$/i, "")
     .trim()
 }
 
 function ensureSentence(text: string) {
   const next = text.trim()
   if (!next) return ""
-  return /[.!?]$/.test(next) ? next : `${next}.`
+  if (next.endsWith(",")) return `${next.slice(0, -1)}.`
+  return /[.!?;:]$/.test(next) ? next : `${next}.`
 }
 
 function isCodeFenceLine(text: string) {
@@ -282,7 +285,7 @@ export class SpeechSanitizer {
 
         const header = this.pendingTableHeader
         this.pendingTableHeader = undefined
-        output.push(this.processPlainLine(header), this.processLine(line))
+        output.push(this.processPlainLine(header, true), this.processLine(line))
         continue
       }
 
@@ -303,7 +306,7 @@ export class SpeechSanitizer {
 
     if (final) {
       if (this.pendingTableHeader !== undefined) {
-        output.push(this.processPlainLine(this.pendingTableHeader))
+        output.push(this.processPlainLine(this.pendingTableHeader, true))
         this.pendingTableHeader = undefined
       }
       this.buffer = ""
@@ -312,7 +315,7 @@ export class SpeechSanitizer {
       this.atLineStart = true
     }
 
-    return normalizeSpeechText(output.filter(Boolean).join(" "))
+    return normalizeSpeechText(output.filter(Boolean).join("\n"))
   }
 
   private takeLine(final: boolean) {
@@ -397,10 +400,10 @@ export class SpeechSanitizer {
       return ""
     }
 
-    return this.processPlainLine(line)
+    return this.processPlainLine(line, true)
   }
 
-  private processPlainLine(line: string) {
+  private processPlainLine(line: string, lineBreak = false) {
     const withoutPrefixes = stripLinePrefixes(line)
     if (!withoutPrefixes) return ""
     if (isHorizontalRule(withoutPrefixes)) return ""
@@ -409,7 +412,8 @@ export class SpeechSanitizer {
     if (heading) return ensureSentence(`Heading, ${sanitizeInline(heading[1])}`)
 
     if (isDenseTechnicalLine(withoutPrefixes)) return TECHNICAL_PLACEHOLDER
-    return sanitizeInline(withoutPrefixes)
+    const sanitized = sanitizeInline(withoutPrefixes)
+    return lineBreak ? ensureSentence(sanitized) : sanitized
   }
 }
 
