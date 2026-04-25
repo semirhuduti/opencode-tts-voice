@@ -36,6 +36,8 @@ OpenCode loads the package automatically.
 
 This package exposes a TUI plugin entrypoint and runs inside the OpenCode terminal UI.
 
+Speech generation runs in a persistent helper process so Kokoro/ONNX work and WAV encoding do not block the TUI event loop.
+
 ## Config
 
 Example `~/.config/opencode/tui.json`:
@@ -92,6 +94,10 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
 | `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
+
+## Logging
+
+Runtime logging defaults to warnings and errors only to avoid terminal redraw pressure in the TUI. Set `OPENCODE_TTS_VOICE_LOG_LEVEL=debug` or `info` when diagnosing plugin behavior. Helper process logs are silent by default because stdout is used for the helper protocol; set `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL=warn` or `error` only when debugging helper startup failures.
 
 ## Shortcuts
 

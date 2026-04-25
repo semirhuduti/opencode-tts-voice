@@ -49,7 +49,7 @@ function formatError(error: unknown) {
 
 async function prepareOnnxRuntime() {
   const ort = await import("onnxruntime-node")
-  ort.env.logLevel = "error"
+  ;(ort.env as { logLevel?: string }).logLevel = "error"
   ;(globalThis as Record<PropertyKey, unknown>)[ORT_SYMBOL] = ort
 }
 
@@ -157,6 +157,10 @@ export class KokoroRuntime {
       preferredDevice: this.config.device,
     })
     await prepareOnnxRuntime()
+    if (this.config.cacheDir) {
+      const { env } = await import("@huggingface/transformers")
+      env.cacheDir = this.config.cacheDir
+    }
     const { KokoroTTS, TextSplitterStream } = await loadKokoroModule()
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]

@@ -140,6 +140,3 @@ vite.config.ts.timestamp-*
 
 # Local validation artifacts
 .tmp-check/
-
-# ai
-AGENT.md

@@ -8,8 +8,11 @@ const outdir = path.join(root, "dist")
 await mkdir(outdir, { recursive: true })
 
 const build = await Bun.build({
-  entrypoints: [path.join(root, "src", "tui-plugin.tsx")],
-  outfile: path.join(outdir, "tui-plugin.js"),
+  entrypoints: [
+    path.join(root, "src", "tui-plugin.tsx"),
+    path.join(root, "src", "voice-helper-process.ts"),
+  ],
+  outdir,
   target: "bun",
   format: "esm",
   packages: "external",

@@ -3,11 +3,9 @@ import type { Message, Part } from "@opencode-ai/sdk/v2"
 import { spawn, type ChildProcess } from "node:child_process"
 import * as fsSync from "node:fs"
 import * as fs from "node:fs/promises"
-import * as os from "node:os"
 import * as path from "node:path"
 import { KV_ENABLED, PLAYER_CANDIDATES, PLAYER_DEFAULT_ARGS } from "./voice-constants.js"
-import { trimSilence, wavFromFloat32 } from "./voice-audio.js"
-import { KokoroRuntime } from "./voice-kokoro.js"
+import { TtsHelperRuntime } from "./voice-helper-runtime.js"
 import { createLogger } from "./voice-log.js"
 import { drainStreamChunks, prepareSpeechText, splitPlaybackText } from "./voice-text.js"
 import type { SpeechSource, VoiceBlock, VoiceConfig, VoiceState } from "./voice-types.js"
@@ -26,13 +24,18 @@ type StreamBuffer = {
   sessionID: string
   messageID: string
   block: Extract<VoiceBlock, "reason" | "message">
-  lastText: string
+  textLength: number
   buffer: string
 }
 
 type GenerateTask = {
   item: QueueItem
   interrupted: boolean
+}
+
+type GeneratedAudio = {
+  text: string
+  file: string
 }
 
 type ReadyAudioItem =
@@ -59,6 +62,9 @@ type PlayTask = {
 }
 
 const READY_AUDIO_BUFFER = 1
+const LISTENER_NOTIFY_DELAY_MS = 50
+const STREAM_COALESCE_QUEUE_THRESHOLD = 4
+const MAX_STREAM_QUEUE_ITEMS = 32
 
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
@@ -105,7 +111,7 @@ export class VoiceController {
   private readonly streams = new Map<string, StreamBuffer>()
   private readonly cleanup: Array<() => void> = []
   private readonly timers = new Set<NodeJS.Timeout>()
-  private readonly runtime: KokoroRuntime
+  private readonly runtime: TtsHelperRuntime
 
   private readonly queue: QueueItem[] = []
   private readonly readyAudio: ReadyAudioItem[] = []
@@ -113,9 +119,9 @@ export class VoiceController {
   private currentPlay?: PlayTask
   private queueWake?: () => void
   private playbackWake?: () => void
+  private listenerTimer?: NodeJS.Timeout
   private loopStarted = false
   private disposed = false
-  private tmpDir?: Promise<string>
   private queueID = 0
   private readyAudioID = 0
   private epoch = 0
@@ -139,7 +145,7 @@ export class VoiceController {
       error: undefined,
     }
 
-    this.runtime = new KokoroRuntime(config, (status) => this.setState(status), createLogger("kokoro"))
+    this.runtime = new TtsHelperRuntime(config, (status) => this.setState(status), createLogger("helper"))
 
     this.log.info("init", {
       enabled: this.state.enabled,
@@ -265,21 +271,21 @@ export class VoiceController {
 
     for (const timer of this.timers) clearTimeout(timer)
     this.timers.clear()
+    if (this.listenerTimer) {
+      clearTimeout(this.listenerTimer)
+      this.listenerTimer = undefined
+    }
 
     for (const off of this.cleanup) off()
     this.cleanup.length = 0
 
     await this.resetQueue(false)
     this.notify()
+    this.scheduleListenerNotify(true)
     this.log.info("dispose")
-
-    const dir = this.tmpDir
-    this.tmpDir = undefined
-    if (!dir) return
-
-    const value = await dir.catch(() => undefined)
-    if (!value) return
-    await fs.rm(value, { recursive: true, force: true }).catch(() => undefined)
+    await this.runtime.dispose().catch((error) => {
+      this.log.warn("helper dispose failed", { error: formatError(error) })
+    })
   }
 
   private setState(patch: Partial<VoiceState>) {
@@ -292,8 +298,32 @@ export class VoiceController {
       changed = true
     }
     if (!changed) return
-    this.log.info("state changed", changedFields)
-    for (const listener of this.listeners) listener()
+    this.log.debug("state changed", changedFields)
+    this.scheduleListenerNotify()
+  }
+
+  private scheduleListenerNotify(immediate = false) {
+    if (this.disposed && !immediate) return
+
+    if (this.listenerTimer) {
+      if (!immediate) return
+      clearTimeout(this.listenerTimer)
+      this.timers.delete(this.listenerTimer)
+      this.listenerTimer = undefined
+    }
+
+    if (immediate) {
+      for (const listener of this.listeners) listener()
+      return
+    }
+
+    const timer = setTimeout(() => {
+      this.timers.delete(timer)
+      if (this.listenerTimer === timer) this.listenerTimer = undefined
+      for (const listener of this.listeners) listener()
+    }, LISTENER_NOTIFY_DELAY_MS)
+    this.listenerTimer = timer
+    this.timers.add(timer)
   }
 
   private activeSessionID() {
@@ -334,10 +364,13 @@ export class VoiceController {
       let segmentCount = 0
       let queuedPause = false
       try {
-        for await (const generated of this.runtime.stream(item.text)) {
-          if (!(await this.waitForReadyAudioCapacity(current))) break
+        for await (const generated of this.runtime.stream(item.text, item.epoch)) {
+          if (!(await this.waitForReadyAudioCapacity(current))) {
+            await fs.unlink(generated.file).catch(() => undefined)
+            break
+          }
 
-          const ready = await this.createAudioReadyItem(item, generated.text, generated.audio, generated.sampleRate)
+          const ready = await this.createAudioReadyItem(item, generated)
           if (!ready) {
             if (current.interrupted || this.isStale(item)) break
             continue
@@ -474,7 +507,7 @@ export class VoiceController {
   private async takeNextQueueItem() {
     while (!this.disposed) {
       if (this.state.enabled && !this.state.paused && this.bufferedAudioCount() < READY_AUDIO_BUFFER && this.queue.length > 0) {
-        const item = this.queue.shift()
+        const item = this.takeQueueItem()
         if (!item || this.isStale(item)) continue
         return item
       }
@@ -502,7 +535,7 @@ export class VoiceController {
   private async takeNextReadyAudio() {
     while (!this.disposed) {
       if (this.state.enabled && !this.state.paused && this.readyAudio.length > 0) {
-        const item = this.readyAudio.shift()
+        const item = this.takeReadyAudioItem()
         if (!item) continue
         if (this.isStale(item.sourceItem)) {
           await this.discardReadyAudio([item])
@@ -542,6 +575,14 @@ export class VoiceController {
     this.syncActivity()
   }
 
+  private takeQueueItem() {
+    return this.queue.shift()
+  }
+
+  private takeReadyAudioItem() {
+    return this.readyAudio.shift()
+  }
+
   private syncActivity() {
     this.setState({
       busy: Boolean(this.currentGenerate) || Boolean(this.currentPlay) || this.readyAudio.length > 0 || this.queue.length > 0,
@@ -563,7 +604,9 @@ export class VoiceController {
     this.setState({ paused: true })
     if (requeued.length > 0) this.queue.unshift(...requeued)
 
-    if (this.currentGenerate) this.currentGenerate.interrupted = true
+    if (this.currentGenerate) {
+      this.currentGenerate.interrupted = true
+    }
     if (this.currentPlay) {
       this.currentPlay.interrupted = true
       if (this.currentPlay.item.kind === "audio") this.stopChild(this.currentPlay.child)
@@ -597,10 +640,14 @@ export class VoiceController {
       nextEpoch: this.epoch + 1,
     })
     this.epoch += 1
+    void this.runtime.cancelEpoch(this.epoch - 1)
     this.queue.length = 0
     if (requeued.length > 0) this.queue.push(...requeued)
 
-    if (this.currentGenerate) this.currentGenerate.interrupted = true
+    if (this.currentGenerate) {
+      this.currentGenerate.interrupted = true
+      void this.runtime.cancelEpoch(this.currentGenerate.item.epoch)
+    }
     if (this.currentPlay) {
       this.currentPlay.interrupted = true
       if (this.currentPlay.item.kind === "audio") this.stopChild(this.currentPlay.child)
@@ -641,6 +688,11 @@ export class VoiceController {
 
   private enqueuePreparedChunk(text: string, pauseMs: number, source: SpeechSource) {
     if (!text.trim()) return
+    if (source === "stream" && this.coalesceStreamChunk(text, pauseMs)) {
+      this.trimStreamQueue()
+      return
+    }
+
     const item = {
       id: this.queueID++,
       epoch: this.epoch,
@@ -658,6 +710,45 @@ export class VoiceController {
       queueLength: this.queue.length,
       preview: text.slice(0, 80),
     })
+    if (source === "stream") this.trimStreamQueue()
+  }
+
+  private coalesceStreamChunk(text: string, pauseMs: number) {
+    if (this.queue.length < STREAM_COALESCE_QUEUE_THRESHOLD) return false
+
+    const previous = this.queue.at(-1)
+    if (!previous || previous.source !== "stream" || previous.epoch !== this.epoch) return false
+
+    const merged = `${previous.text} ${text}`.trim()
+    if (merged.length > this.config.speechChunkLength) return false
+
+    previous.text = merged
+    previous.pauseMs = Math.max(previous.pauseMs, pauseMs)
+    this.log.debug("stream chunk coalesced", {
+      itemID: previous.id,
+      textLength: previous.text.length,
+      queueLength: this.queue.length,
+    })
+    return true
+  }
+
+  private trimStreamQueue() {
+    if (this.queue.length <= MAX_STREAM_QUEUE_ITEMS) return
+
+    let dropCount = this.queue.length - MAX_STREAM_QUEUE_ITEMS
+    for (let index = 0; index < this.queue.length && dropCount > 0; ) {
+      const item = this.queue[index]
+      if (!item || item.source !== "stream") {
+        index += 1
+        continue
+      }
+      this.queue.splice(index, 1)
+      dropCount -= 1
+    }
+
+    if (dropCount === 0) {
+      this.log.warn("stream queue trimmed", { queueLength: this.queue.length, maxQueueLength: MAX_STREAM_QUEUE_ITEMS })
+    }
   }
 
   private enqueueReadyAudio(item: ReadyAudioItem) {
@@ -690,11 +781,10 @@ export class VoiceController {
     }
   }
 
-  private async createAudioReadyItem(sourceItem: QueueItem, text: string, audio: Float32Array, sampleRate: number) {
+  private async createAudioReadyItem(sourceItem: QueueItem, generated: GeneratedAudio) {
     const id = this.readyAudioID++
-    const file = await this.writeAudioFile(audio, sampleRate, id)
     if (this.isStale(sourceItem)) {
-      await fs.unlink(file).catch(() => undefined)
+      await fs.unlink(generated.file).catch(() => undefined)
       return undefined
     }
 
@@ -703,8 +793,8 @@ export class VoiceController {
       epoch: sourceItem.epoch,
       sourceItem,
       kind: "audio" as const,
-      text,
-      file,
+      text: generated.text,
+      file: generated.file,
     }
   }
 
@@ -777,12 +867,12 @@ export class VoiceController {
       sessionID: event.sessionID,
       messageID: event.messageID,
       block,
-      lastText: "",
+      textLength: 0,
       buffer: "",
     }
     stream.block = block
 
-    stream.lastText += event.delta
+    stream.textLength += event.delta.length
     stream.buffer += event.delta
 
     const drained = drainStreamChunks(stream.buffer, this.config, false)
@@ -801,7 +891,7 @@ export class VoiceController {
     }
 
     this.streams.set(event.partID, stream)
-    this.notify()
+    if (drained.chunks.length > 0) this.notify()
   }
 
   private onMessagePartUpdated(part: Part) {
@@ -828,15 +918,17 @@ export class VoiceController {
       sessionID: part.sessionID,
       messageID: part.messageID,
       block,
-      lastText: "",
+      textLength: 0,
       buffer: "",
     }
     stream.block = block
 
-    if (text.startsWith(stream.lastText)) {
-      stream.buffer += text.slice(stream.lastText.length)
+    if (text.length >= stream.textLength) {
+      stream.buffer += text.slice(stream.textLength)
+    } else {
+      stream.buffer = text
     }
-    stream.lastText = text
+    stream.textLength = text.length
 
     if (this.state.enabled && this.config.readResponses && this.isVoiceBlockEnabled(block)) {
       const drained = drainStreamChunks(stream.buffer, this.config, Boolean(part.time?.end))
@@ -960,30 +1052,6 @@ export class VoiceController {
     return prepared || undefined
   }
 
-  private async writeAudioFile(audio: Float32Array, sampleRate: number, id: number) {
-    const dir = await this.ensureTempDir()
-    const trimmed = trimSilence(audio, sampleRate, this.config.trimSilenceThreshold, this.config.leadingAudioPadMs)
-    const file = path.join(dir, `${Date.now()}-${id}.wav`)
-    await fs.writeFile(file, wavFromFloat32(trimmed, sampleRate))
-    this.log.info("audio file written", {
-      file,
-      sampleRate,
-      inputSamples: audio.length,
-      outputSamples: trimmed.length,
-    })
-    return file
-  }
-
-  private async ensureTempDir() {
-    if (!this.tmpDir) {
-      this.tmpDir = fs.mkdtemp(path.join(os.tmpdir(), "opencode-tts-voice-"))
-      this.log.info("temp dir requested")
-    }
-    const dir = await this.tmpDir
-    this.log.info("temp dir ready", { dir })
-    return dir
-  }
-
   private buildPlayerArgs(file: string) {
     const playerBin = this.resolvedPlayer ?? this.config.playerBin
     const base = toBasePlayer(playerBin)
@@ -1023,7 +1091,7 @@ export class VoiceController {
         args,
         file,
       })
-      const child = spawn(playerBin, this.buildPlayerArgs(file), {
+      const child = spawn(playerBin, args, {
         stdio: ["ignore", "ignore", "pipe"],
       })
 
@@ -1032,7 +1100,7 @@ export class VoiceController {
       let stderr = ""
 
       child.stderr?.on("data", (chunk: Buffer | string) => {
-        stderr += String(chunk)
+        stderr = `${stderr}${String(chunk)}`.slice(-2000)
       })
 
       const done = (callback: () => void) => {
@@ -1094,7 +1162,10 @@ export class VoiceController {
       this.api.kv.set(KV_ENABLED, false)
       this.setState({ enabled: false, paused: false })
       this.queue.length = 0
-      if (this.currentGenerate) this.currentGenerate.interrupted = true
+      if (this.currentGenerate) {
+        this.currentGenerate.interrupted = true
+        void this.runtime.cancelEpoch(this.currentGenerate.item.epoch)
+      }
       if (this.currentPlay) this.currentPlay.interrupted = true
       await this.discardReadyAudio(bufferedReadyAudio)
       this.toastError(`Playback failed. Command not found: ${this.config.playerBin}`)
