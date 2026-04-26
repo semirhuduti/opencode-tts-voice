@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   playerBin: "auto",
   playerArgs: [],
   readResponses: true,
+  readSubagentResponses: false,
   announceOnIdle: false,
   idleMessage: "Task completed.",
   voiceBlocks: ["message", "idle"],

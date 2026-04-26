@@ -84,6 +84,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `playerBin` | string | `auto` | Playback backend command. `auto` picks the first installed backend from `ffplay`, `mpv`, `paplay`, or `aplay`. |
 | `playerArgs` | string or string[] | `[]` | Additional arguments passed to the playback backend helper. |
 | `readResponses` | boolean | `true` | Speak streamed assistant responses. |
+| `readSubagentResponses` | boolean | `false` | Speak responses from subagent child sessions. Disabled by default so only the main agent is spoken. |
 | `announceOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
 | `idleMessage` | string | `Task completed.` | Idle message text. |
 | `voiceBlocks` | string[] | `["message", "idle"]` | Fine-grained speech source filter. Accepted values: `reason`, `message`, `idle`. Reasoning is opt-in. |
@@ -132,6 +133,7 @@ When the TUI entrypoint is active, the plugin also renders compact shortcut chip
 `voiceBlocks` works as a source filter on top of the existing booleans:
 
 - `readResponses` still enables or disables streamed response playback
+- `readSubagentResponses` enables or disables speech from subagent child sessions
 - `announceOnIdle` still enables or disables idle announcements
 - `voiceBlocks` decides which of `reason`, `message`, and `idle` are allowed to be spoken when those features are active
 

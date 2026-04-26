@@ -133,6 +133,7 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     playerBin: readString(input.playerBin, DEFAULT_CONFIG.playerBin),
     playerArgs: readStringList(input.playerArgs, DEFAULT_CONFIG.playerArgs),
     readResponses: readBoolean(input.readResponses, DEFAULT_CONFIG.readResponses),
+    readSubagentResponses: readBoolean(input.readSubagentResponses, DEFAULT_CONFIG.readSubagentResponses),
     announceOnIdle: readBoolean(input.announceOnIdle, DEFAULT_CONFIG.announceOnIdle),
     idleMessage: readString(input.idleMessage, DEFAULT_CONFIG.idleMessage),
     voiceBlocks: readVoiceBlocks(input.voiceBlocks ?? input["voice-blocks"]),

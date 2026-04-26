@@ -63,6 +63,11 @@ type PlayTask = {
   child?: ChildProcess
 }
 
+type SessionParentInfo = {
+  id?: string | null
+  parentID?: string | null
+}
+
 const READY_AUDIO_BUFFER = 1
 const LISTENER_NOTIFY_DELAY_MS = 50
 const STREAM_COALESCE_QUEUE_THRESHOLD = 4
@@ -115,6 +120,8 @@ export class VoiceController {
   private readonly log = createLogger("controller")
   private readonly listeners = new Set<Listener>()
   private readonly messages = new Map<string, Message>()
+  private readonly sessionParents = new Map<string, string | undefined>()
+  private readonly sessionParentLookups = new Map<string, Promise<string | undefined>>()
   private readonly latestBySession = new Map<string, string>()
   private readonly streams = new Map<string, StreamBuffer>()
   private readonly cleanup: Array<() => void> = []
@@ -160,14 +167,18 @@ export class VoiceController {
       device: this.config.device,
       playerBin: this.config.playerBin,
       readResponses: this.config.readResponses,
+      readSubagentResponses: this.config.readSubagentResponses,
       announceOnIdle: this.config.announceOnIdle,
     })
 
     this.cleanup.push(
-      api.event.on("message.updated", (event) => this.onMessageUpdated(event.properties.info)),
-      api.event.on("message.part.delta", (event) => this.onMessagePartDelta(event.properties)),
-      api.event.on("message.part.updated", (event) => this.onMessagePartUpdated(event.properties.part)),
-      api.event.on("session.idle", (event) => this.onSessionIdle(event.properties.sessionID)),
+      api.event.on("session.created", (event) => this.cacheSession(event.properties.sessionID, event.properties.info)),
+      api.event.on("session.updated", (event) => this.cacheSession(event.properties.sessionID, event.properties.info)),
+      api.event.on("session.deleted", (event) => this.forgetSession(event.properties.sessionID)),
+      api.event.on("message.updated", (event) => this.runEventTask("message.updated", this.onMessageUpdated(event.properties.info))),
+      api.event.on("message.part.delta", (event) => this.runEventTask("message.part.delta", this.onMessagePartDelta(event.properties))),
+      api.event.on("message.part.updated", (event) => this.runEventTask("message.part.updated", this.onMessagePartUpdated(event.properties.part))),
+      api.event.on("session.idle", (event) => this.runEventTask("session.idle", this.onSessionIdle(event.properties.sessionID))),
     )
 
     this.startLoop()
@@ -241,6 +252,10 @@ export class VoiceController {
     const activeSessionID = sessionID ?? this.activeSessionID()
     if (!activeSessionID) {
       this.api.ui.toast({ variant: "warning", message: "No active session" })
+      return false
+    }
+    if (!(await this.shouldSpeakSession(activeSessionID))) {
+      this.api.ui.toast({ variant: "warning", message: "Subagent speech is disabled" })
       return false
     }
 
@@ -338,6 +353,80 @@ export class VoiceController {
     const route = this.api.route.current
     if (route.name !== "session") return undefined
     return typeof route.params?.sessionID === "string" ? route.params.sessionID : undefined
+  }
+
+  private runEventTask(eventName: string, task: Promise<void>) {
+    task.catch((error) => {
+      this.log.warn("event handler failed", { eventName, error: formatError(error) })
+    })
+  }
+
+  private cacheSession(sessionID: string, session: SessionParentInfo) {
+    const id = typeof session.id === "string" && session.id ? session.id : sessionID
+    const hasParentID = "parentID" in session
+    const parentID = typeof session.parentID === "string" && session.parentID ? session.parentID : undefined
+
+    if (hasParentID) this.sessionParents.set(id, parentID)
+    this.sessionParentLookups.delete(id)
+    this.log.debug("session cached", {
+      sessionID: id,
+      parentID: this.sessionParents.get(id) ?? null,
+      subagent: Boolean(this.sessionParents.get(id)),
+    })
+  }
+
+  private forgetSession(sessionID: string) {
+    this.sessionParents.delete(sessionID)
+    this.sessionParentLookups.delete(sessionID)
+    this.latestBySession.delete(sessionID)
+
+    for (const [partID, stream] of this.streams) {
+      if (stream.sessionID === sessionID) this.streams.delete(partID)
+    }
+  }
+
+  private async sessionParentID(sessionID: string) {
+    if (this.sessionParents.has(sessionID)) return this.sessionParents.get(sessionID)
+
+    const existing = this.sessionParentLookups.get(sessionID)
+    if (existing) return existing
+
+    const lookup = this.fetchSessionParentID(sessionID).finally(() => {
+      this.sessionParentLookups.delete(sessionID)
+    })
+    this.sessionParentLookups.set(sessionID, lookup)
+    return lookup
+  }
+
+  private async fetchSessionParentID(sessionID: string) {
+    try {
+      const result = await this.api.client.session.get({ sessionID })
+      if (result.data) {
+        this.cacheSession(sessionID, result.data)
+        return result.data.parentID
+      }
+
+      this.log.warn("session lookup failed", {
+        sessionID,
+        error: result.error ? formatError(result.error) : undefined,
+      })
+    } catch (error) {
+      this.log.warn("session lookup failed", { sessionID, error: formatError(error) })
+    }
+
+    this.sessionParents.set(sessionID, undefined)
+    return undefined
+  }
+
+  private async shouldSpeakSession(sessionID: string) {
+    if (this.config.readSubagentResponses) return true
+
+    const parentID = await this.sessionParentID(sessionID)
+    const allowed = !parentID
+    if (!allowed) {
+      this.log.debug("speech skipped for subagent session", { sessionID, parentID })
+    }
+    return allowed
   }
 
   private startLoop() {
@@ -837,7 +926,7 @@ export class VoiceController {
     return part ? this.blockForPart(part) : "message"
   }
 
-  private onMessageUpdated(message: Message) {
+  private async onMessageUpdated(message: Message) {
     const completed = "completed" in message.time && Boolean(message.time.completed)
     this.messages.set(message.id, message)
     this.log.info("message updated", {
@@ -848,11 +937,16 @@ export class VoiceController {
       summary: Boolean(message.summary),
     })
     if (message.role !== "assistant" || message.summary || !completed) return
+    if (!(await this.shouldSpeakSession(message.sessionID))) return
     this.scheduleLatestRefresh(message.sessionID, message.id)
   }
 
-  private onMessagePartDelta(event: { sessionID: string; messageID: string; partID: string; field: string; delta: string }) {
+  private async onMessagePartDelta(event: { sessionID: string; messageID: string; partID: string; field: string; delta: string }) {
     if (!this.config.readResponses) return
+    if (!(await this.shouldSpeakSession(event.sessionID))) {
+      this.streams.delete(event.partID)
+      return
+    }
 
     const block = this.blockForDelta(event)
     if (!block || !this.isVoiceBlockEnabled(block)) return
@@ -903,8 +997,12 @@ export class VoiceController {
     if (drained.chunks.length > 0) this.notify()
   }
 
-  private onMessagePartUpdated(part: Part) {
+  private async onMessagePartUpdated(part: Part) {
     if (part.type !== "text" && part.type !== "reasoning") return
+    if (!(await this.shouldSpeakSession(part.sessionID))) {
+      this.streams.delete(part.id)
+      return
+    }
 
     const block = this.blockForPart(part)
     if (!block) return
@@ -980,8 +1078,9 @@ export class VoiceController {
     this.streams.set(part.id, stream)
   }
 
-  private onSessionIdle(sessionID: string) {
+  private async onSessionIdle(sessionID: string) {
     if (!this.state.enabled || !this.config.announceOnIdle || !this.isVoiceBlockEnabled("idle")) return
+    if (!(await this.shouldSpeakSession(sessionID))) return
     const active = this.activeSessionID()
     if (active && active !== sessionID) return
 

@@ -16,6 +16,7 @@ export type VoicePluginOptions = {
   playerBin?: unknown
   playerArgs?: unknown
   readResponses?: unknown
+  readSubagentResponses?: unknown
   announceOnIdle?: unknown
   idleMessage?: unknown
   voiceBlocks?: unknown
@@ -47,6 +48,7 @@ export type VoiceConfig = {
   playerBin: string
   playerArgs: string[]
   readResponses: boolean
+  readSubagentResponses: boolean
   announceOnIdle: boolean
   idleMessage: string
   voiceBlocks: VoiceBlock[]
