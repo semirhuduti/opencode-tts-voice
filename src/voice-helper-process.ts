@@ -46,6 +46,8 @@ function runtimeIdentity(config: VoiceConfig) {
     voice: config.voice,
     speed: config.speed,
     cacheDir: config.cacheDir,
+    cpuLimitPercent: config.cpuLimitPercent,
+    cpuLimitConcurrency: config.cpuLimitConcurrency,
     trimSilenceThreshold: config.trimSilenceThreshold,
     leadingAudioPadMs: config.leadingAudioPadMs,
   })

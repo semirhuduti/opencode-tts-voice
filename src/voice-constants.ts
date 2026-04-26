@@ -20,6 +20,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   speechChunkLength: 1000,
   streamSoftLimit: 180,
   maxTextLength: 2000,
+  cpuLimitPercent: 80,
+  cpuLimitConcurrency: 2,
   trimSilenceThreshold: 0.001,
   leadingAudioPadMs: 12,
   defaultChunkPauseMs: 240,

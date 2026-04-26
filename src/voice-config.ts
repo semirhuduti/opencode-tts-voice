@@ -35,6 +35,12 @@ function readNumber(value: unknown, fallback: number, min?: number) {
   return value
 }
 
+function readPercent(value: unknown, fallback: number) {
+  const next = readNumber(value, fallback, 0)
+  if (next > 100) return fallback
+  return next
+}
+
 function readInteger(value: unknown, fallback: number, min = 0) {
   const next = readNumber(value, fallback, min)
   return Math.floor(next)
@@ -133,6 +139,12 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     speechChunkLength,
     streamSoftLimit,
     maxTextLength: readInteger(input.maxTextLength, DEFAULT_CONFIG.maxTextLength, 64),
+    cpuLimitPercent: readPercent(input.cpuLimitPercent, DEFAULT_CONFIG.cpuLimitPercent),
+    cpuLimitConcurrency: readInteger(
+      input.cpuLimitConcurrency,
+      DEFAULT_CONFIG.cpuLimitConcurrency,
+      1,
+    ),
     trimSilenceThreshold: readNumber(
       input.trimSilenceThreshold,
       DEFAULT_CONFIG.trimSilenceThreshold,

@@ -90,6 +90,8 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `speechChunkLength` | number | `1000` | Maximum chunk size sent to the TTS generator. |
 | `streamSoftLimit` | number | `180` | Target flush size for streamed assistant text. |
 | `maxTextLength` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
+| `cpuLimitPercent` | number | `80` | Approximate total CPU budget for speech generation, expressed as a percentage of available CPU cores. |
+| `cpuLimitConcurrency` | number | `2` | Expected number of simultaneous generations sharing the CPU budget. With the defaults, each generation gets about half of the 80% budget. |
 | `trimSilenceThreshold` | number | `0.001` | Silence threshold used when trimming generated chunks. |
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `defaultChunkPauseMs` | number | `140` | Pause added after normal chunks. |
@@ -101,6 +103,12 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 ## Logging
 
 Runtime logging defaults to warnings and errors only to avoid terminal redraw pressure in the TUI. Set `OPENCODE_TTS_VOICE_LOG_LEVEL=debug` or `info` when diagnosing plugin behavior. Helper process logs are silent by default because stdout is used for the helper protocol; set `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL=warn` or `error` only when debugging helper startup failures.
+
+## Resource Usage
+
+Speech generation defaults to an approximate 80% CPU budget split across two possible simultaneous generations. The plugin applies this by limiting ONNX Runtime inference threads per generation. For example, on an 8-core system the defaults allow about 6 total inference threads, or 3 threads per generation when two generations overlap.
+
+Generated audio is written as temporary mono 24 kHz 16-bit PCM WAV files for playback. This keeps playback simple and avoids spending extra CPU on MP3 or Opus encoding, which would shrink temporary files but would not reduce the expensive TTS inference step.
 
 ## Shortcuts
 
