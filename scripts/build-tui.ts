@@ -9,6 +9,7 @@ await mkdir(outdir, { recursive: true })
 
 const build = await Bun.build({
   entrypoints: [
+    path.join(root, "src", "server-plugin.ts"),
     path.join(root, "src", "tui-plugin.tsx"),
     path.join(root, "src", "voice-helper-process.ts"),
   ],

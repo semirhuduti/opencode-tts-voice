@@ -43,6 +43,10 @@ Speech generation runs in a persistent helper process so Kokoro/ONNX work and WA
 
 ## Config
 
+Voice options are TUI plugin options, so put them in `tui.json`, not `opencode.json`.
+
+If your installed plugin entry includes a version such as `@semirhuduti/opencode-tts-voice@0.5.3-alpha.1`, keep that same spec when converting it to a configured tuple. Removing the version can make OpenCode resolve a different npm dist-tag.
+
 Example `~/.config/opencode/tui.json`:
 
 ```json
@@ -70,6 +74,8 @@ Example `~/.config/opencode/tui.json`:
 The plugin works with defaults, so the `shortcuts` block is optional unless you want custom keybinds.
 
 If you install locally, OpenCode may write the plugin entry into your project `.opencode/tui.json` instead.
+
+If an older config has this package listed in `opencode.json`, remove it from there after confirming it is present in `tui.json`. The package includes a no-op server entrypoint for compatibility, but voice playback only runs from the TUI entrypoint.
 
 ## Options
 
@@ -141,6 +147,7 @@ When the TUI entrypoint is active, the plugin also renders compact shortcut chip
 
 Published package entrypoints:
 
+- `.` / `./server`: no-op compatibility entrypoint for OpenCode runtime plugin config
 - `./tui`: TUI plugin entrypoint for OpenCode terminal UI
 
 This package is intended to be published as a public scoped npm package.
