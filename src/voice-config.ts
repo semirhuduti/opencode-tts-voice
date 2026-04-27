@@ -89,7 +89,7 @@ function isVoiceBlock(value: unknown): value is VoiceBlock {
 function readVoiceBlocks(value: unknown): VoiceBlock[] {
   if (Array.isArray(value) && value.length === 0) return []
 
-  const input = Array.isArray(value) ? value : typeof value === "string" ? [value] : DEFAULT_CONFIG.voiceBlocks
+  const input = Array.isArray(value) ? value : typeof value === "string" ? [value] : DEFAULT_CONFIG.speechBlocks
   const next: VoiceBlock[] = []
 
   for (const item of input) {
@@ -97,7 +97,7 @@ function readVoiceBlocks(value: unknown): VoiceBlock[] {
     next.push(item)
   }
 
-  return next.length ? next : [...DEFAULT_CONFIG.voiceBlocks]
+  return next.length ? next : [...DEFAULT_CONFIG.speechBlocks]
 }
 
 function readShortcuts(value: unknown): ShortcutConfig {
@@ -111,10 +111,10 @@ function readShortcuts(value: unknown): ShortcutConfig {
 
 export function resolveVoiceConfig(options: VoicePluginOptions | undefined): VoiceConfig {
   const input: Record<string, unknown> = isRecord(options) ? options : {}
-  const speechChunkLength = readInteger(input.speechChunkLength, DEFAULT_CONFIG.speechChunkLength, 32)
-  const streamSoftLimit = Math.min(
-    speechChunkLength,
-    readInteger(input.streamSoftLimit, DEFAULT_CONFIG.streamSoftLimit, 16),
+  const maxSpeechChunkChars = readInteger(input.maxSpeechChunkChars, DEFAULT_CONFIG.maxSpeechChunkChars, 32)
+  const streamFlushChars = Math.min(
+    maxSpeechChunkChars,
+    readInteger(input.streamFlushChars, DEFAULT_CONFIG.streamFlushChars, 16),
   )
 
   return {
@@ -124,24 +124,24 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     dtype: readDType(input.dtype),
     model: readString(input.model, DEFAULT_CONFIG.model),
     cacheDir: readOptionalString(input.cacheDir),
-    playerBin: readString(input.playerBin, DEFAULT_CONFIG.playerBin),
-    playerArgs: readStringList(input.playerArgs, DEFAULT_CONFIG.playerArgs),
-    readResponses: readBoolean(input.readResponses, DEFAULT_CONFIG.readResponses),
-    readSubagentResponses: readBoolean(input.readSubagentResponses, DEFAULT_CONFIG.readSubagentResponses),
-    announceOnIdle: readBoolean(input.announceOnIdle, DEFAULT_CONFIG.announceOnIdle),
-    idleMessage: readString(input.idleMessage, DEFAULT_CONFIG.idleMessage),
-    voiceBlocks: readVoiceBlocks(input.voiceBlocks ?? input["voice-blocks"]),
-    speechChunkLength,
-    streamSoftLimit,
-    maxTextLength: readInteger(input.maxTextLength, DEFAULT_CONFIG.maxTextLength, 64),
+    audioPlayer: readString(input.audioPlayer, DEFAULT_CONFIG.audioPlayer),
+    audioPlayerArgs: readStringList(input.audioPlayerArgs, DEFAULT_CONFIG.audioPlayerArgs),
+    speakResponses: readBoolean(input.speakResponses, DEFAULT_CONFIG.speakResponses),
+    speakSubagentResponses: readBoolean(input.speakSubagentResponses, DEFAULT_CONFIG.speakSubagentResponses),
+    speakOnIdle: readBoolean(input.speakOnIdle, DEFAULT_CONFIG.speakOnIdle),
+    idleAnnouncement: readString(input.idleAnnouncement, DEFAULT_CONFIG.idleAnnouncement),
+    speechBlocks: readVoiceBlocks(input.speechBlocks),
+    maxSpeechChunkChars,
+    streamFlushChars,
+    maxSpeechChars: readInteger(input.maxSpeechChars, DEFAULT_CONFIG.maxSpeechChars, 64),
     trimSilenceThreshold: readNumber(
       input.trimSilenceThreshold,
       DEFAULT_CONFIG.trimSilenceThreshold,
       0,
     ),
     leadingAudioPadMs: readInteger(input.leadingAudioPadMs, DEFAULT_CONFIG.leadingAudioPadMs, 0),
-    defaultChunkPauseMs: readInteger(input.defaultChunkPauseMs, DEFAULT_CONFIG.defaultChunkPauseMs, 0),
-    clauseChunkPauseMs: readInteger(input.clauseChunkPauseMs, DEFAULT_CONFIG.clauseChunkPauseMs, 0),
+    normalPauseMs: readInteger(input.normalPauseMs, DEFAULT_CONFIG.normalPauseMs, 0),
+    sentencePauseMs: readInteger(input.sentencePauseMs, DEFAULT_CONFIG.sentencePauseMs, 0),
     shortcuts: readShortcuts(input.shortcuts),
   }
 }

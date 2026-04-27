@@ -28,8 +28,8 @@ export function prepareSpeechText(text: string, maxTextLength: number) {
 }
 
 function classifyPause(text: string, config: VoiceConfig) {
-  if (/[.!?;:]$/.test(text)) return config.clauseChunkPauseMs
-  return config.defaultChunkPauseMs
+  if (/[.!?;:]$/.test(text)) return config.sentencePauseMs
+  return config.normalPauseMs
 }
 
 function findBoundary(text: string, minCut: number, maxCut: number) {
@@ -49,26 +49,26 @@ function takeChunk(text: string, config: VoiceConfig, final: boolean) {
   if (newline >= 0 && (final || newline > 0)) {
     const raw = input.slice(0, newline).trim()
     const rest = input.slice(newline + 1).trimStart()
-    const prepared = prepareSanitizedSpeechText(raw, config.maxTextLength)
+    const prepared = prepareSanitizedSpeechText(raw, config.maxSpeechChars)
 
     return {
       rest,
       chunk: prepared
         ? {
             text: prepared,
-            pauseMs: config.clauseChunkPauseMs,
+            pauseMs: config.sentencePauseMs,
           }
         : undefined,
     }
   }
 
-  const hardLimit = Math.min(config.speechChunkLength, input.length)
-  const softLimit = Math.min(config.streamSoftLimit, hardLimit)
+  const hardLimit = Math.min(config.maxSpeechChunkChars, input.length)
+  const softLimit = Math.min(config.streamFlushChars, hardLimit)
 
   if (!final && input.length < softLimit) return undefined
 
   let cut = findBoundary(input, softLimit, hardLimit)
-  if (!cut && (final || input.length >= config.speechChunkLength)) {
+  if (!cut && (final || input.length >= config.maxSpeechChunkChars)) {
     cut = findBoundary(input, 1, hardLimit)
   }
   if (!cut && final) cut = input.length
@@ -76,7 +76,7 @@ function takeChunk(text: string, config: VoiceConfig, final: boolean) {
 
   const raw = input.slice(0, cut).trim()
   const rest = input.slice(cut).trimStart()
-  const prepared = prepareSanitizedSpeechText(raw, config.maxTextLength)
+  const prepared = prepareSanitizedSpeechText(raw, config.maxSpeechChars)
 
   return {
     rest,
@@ -98,14 +98,14 @@ export function drainStreamChunks(text: string, config: VoiceConfig, final = fal
     if (!next) break
     rest = next.rest
     if (next.chunk) chunks.push(next.chunk)
-    if (!final && rest.length < config.streamSoftLimit) break
+    if (!final && rest.length < config.streamFlushChars) break
   }
 
   return { chunks, rest }
 }
 
 export function splitPlaybackText(text: string, config: VoiceConfig) {
-  const prepared = prepareSpeechText(text, config.maxTextLength)
+  const prepared = prepareSpeechText(text, config.maxSpeechChars)
   if (!prepared) return [] as PreparedChunk[]
 
   const chunks: PreparedChunk[] = []

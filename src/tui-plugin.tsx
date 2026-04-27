@@ -4,9 +4,17 @@ import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plug
 import type { ColorInput } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import { createEffect, createSignal, onCleanup } from "solid-js"
+import { VoiceCommands } from "./commands/voice-commands.js"
+import { LatestMessageStore } from "./latest/latest-message-store.js"
+import { MessageStore } from "./messages/message-store.js"
+import { PlaybackPipeline } from "./playback/playback-pipeline.js"
+import { SessionStore } from "./session/session-store.js"
+import { IdleController } from "./session/idle-controller.js"
+import { TimerRegistry } from "./shared/timer-registry.js"
+import { VoiceStateStore } from "./state/voice-state-store.js"
+import { StreamingController } from "./streaming/streaming-controller.js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
-import { VoiceController } from "./voice-controller.js"
 import { createLogger } from "./voice-log.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
@@ -69,12 +77,12 @@ function ShortcutManager(props: {
 
 function ShortcutHint(props: {
   api: TuiPluginApi
-  controller: VoiceController
+  stateStore: VoiceStateStore
   keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
 }) {
-  const [state, setState] = createSignal(props.controller.snapshot())
+  const [state, setState] = createSignal(props.stateStore.snapshot())
   const [spinnerFrame, setSpinnerFrame] = createSignal(0)
-  const unsubscribe = props.controller.subscribe(() => setState(props.controller.snapshot()))
+  const unsubscribe = props.stateStore.subscribe(() => setState(props.stateStore.snapshot()))
   onCleanup(unsubscribe)
 
   createEffect(() => {
@@ -124,11 +132,21 @@ const tui: TuiPlugin = async (api, options) => {
   const config = resolveVoiceConfig(options as VoicePluginOptions | undefined)
   log.info("tui init", {
     route: api.route.current.name,
-    playerBin: config.playerBin,
+    audioPlayer: config.audioPlayer,
     device: config.device,
-    readResponses: config.readResponses,
+    speakResponses: config.speakResponses,
   })
-  const controller = new VoiceController(api, config)
+  const timers = new TimerRegistry()
+  const stateStore = new VoiceStateStore(api.kv, config, timers)
+  const playback = new PlaybackPipeline(config, stateStore, timers, (toast) => api.ui.toast(toast))
+  const sessionStore = new SessionStore(api, config.speakSubagentResponses)
+  const messageStore = new MessageStore(api)
+  const latestStore = new LatestMessageStore(api, config, timers, sessionStore)
+  messageStore.onUpdated((message) => latestStore.onMessageUpdated(message))
+  const streaming = new StreamingController(api, config, stateStore, playback, sessionStore, messageStore, latestStore)
+  const idle = new IdleController(api, config, stateStore, playback, sessionStore)
+  const commands = new VoiceCommands(api.route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast(toast))
+  playback.start()
   const shortcutKeys = api.keybind.create(
     {
       pause: config.shortcuts.pause,
@@ -146,7 +164,7 @@ const tui: TuiPlugin = async (api, options) => {
       keybind: shortcutKeys.get("toggle"),
       onSelect: () => {
         log.info("command selected", { command: "tts.toggle" })
-        void controller.toggleEnabled()
+        void commands.toggleEnabled()
       },
     },
     {
@@ -156,7 +174,7 @@ const tui: TuiPlugin = async (api, options) => {
       keybind: shortcutKeys.get("pause"),
       onSelect: () => {
         log.info("command selected", { command: "tts.play-pause" })
-        void controller.togglePlayback()
+        void commands.togglePlayback()
       },
     },
     {
@@ -166,7 +184,7 @@ const tui: TuiPlugin = async (api, options) => {
       keybind: shortcutKeys.get("skipLatest"),
       onSelect: () => {
         log.info("command selected", { command: "tts.latest" })
-        void controller.replayLatest()
+        void commands.replayLatest()
       },
     },
   ])
@@ -177,17 +195,25 @@ const tui: TuiPlugin = async (api, options) => {
         return <ShortcutManager api={api} keybinds={shortcutKeys} />
       },
       home_prompt_right() {
-        return <ShortcutHint api={api} controller={controller} keybinds={shortcutKeys} />
+        return <ShortcutHint api={api} stateStore={stateStore} keybinds={shortcutKeys} />
       },
       session_prompt_right() {
-        return <ShortcutHint api={api} controller={controller} keybinds={shortcutKeys} />
+        return <ShortcutHint api={api} stateStore={stateStore} keybinds={shortcutKeys} />
       },
     },
   })
 
   api.lifecycle.onDispose(() => {
     log.info("tui dispose")
-    return controller.dispose()
+    return (async () => {
+      streaming.dispose()
+      idle.dispose()
+      messageStore.dispose()
+      sessionStore.dispose()
+      await playback.dispose()
+      stateStore.dispose()
+      timers.dispose()
+    })()
   })
 }
 

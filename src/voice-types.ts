@@ -13,20 +13,20 @@ export type VoicePluginOptions = {
   dtype?: unknown
   model?: unknown
   cacheDir?: unknown
-  playerBin?: unknown
-  playerArgs?: unknown
-  readResponses?: unknown
-  readSubagentResponses?: unknown
-  announceOnIdle?: unknown
-  idleMessage?: unknown
-  voiceBlocks?: unknown
-  speechChunkLength?: unknown
-  streamSoftLimit?: unknown
-  maxTextLength?: unknown
+  audioPlayer?: unknown
+  audioPlayerArgs?: unknown
+  speakResponses?: unknown
+  speakSubagentResponses?: unknown
+  speakOnIdle?: unknown
+  idleAnnouncement?: unknown
+  speechBlocks?: unknown
+  maxSpeechChunkChars?: unknown
+  streamFlushChars?: unknown
+  maxSpeechChars?: unknown
   trimSilenceThreshold?: unknown
   leadingAudioPadMs?: unknown
-  defaultChunkPauseMs?: unknown
-  clauseChunkPauseMs?: unknown
+  normalPauseMs?: unknown
+  sentencePauseMs?: unknown
   shortcuts?: unknown
 }
 
@@ -43,20 +43,20 @@ export type VoiceConfig = {
   dtype: KokoroDType
   model: string
   cacheDir?: string
-  playerBin: string
-  playerArgs: string[]
-  readResponses: boolean
-  readSubagentResponses: boolean
-  announceOnIdle: boolean
-  idleMessage: string
-  voiceBlocks: VoiceBlock[]
-  speechChunkLength: number
-  streamSoftLimit: number
-  maxTextLength: number
+  audioPlayer: string
+  audioPlayerArgs: string[]
+  speakResponses: boolean
+  speakSubagentResponses: boolean
+  speakOnIdle: boolean
+  idleAnnouncement: string
+  speechBlocks: VoiceBlock[]
+  maxSpeechChunkChars: number
+  streamFlushChars: number
+  maxSpeechChars: number
   trimSilenceThreshold: number
   leadingAudioPadMs: number
-  defaultChunkPauseMs: number
-  clauseChunkPauseMs: number
+  normalPauseMs: number
+  sentencePauseMs: number
   shortcuts: ShortcutConfig
 }
 

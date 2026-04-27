@@ -162,7 +162,7 @@ describe("SpeechSanitizer", () => {
 
 describe("voice text pipeline", () => {
   it("prepares double hash headings before Kokoro receives text", () => {
-    expect(prepareSpeechText("## Something", DEFAULT_CONFIG.maxTextLength)).toBe("Heading, Something.")
+    expect(prepareSpeechText("## Something", DEFAULT_CONFIG.maxSpeechChars)).toBe("Heading, Something.")
   })
 
   it("splits playback text after heading sanitization", () => {
@@ -170,7 +170,7 @@ describe("voice text pipeline", () => {
   })
 
   it("does not split streamed text on commas", () => {
-    const config = { ...DEFAULT_CONFIG, streamSoftLimit: 12, speechChunkLength: 25 }
+    const config = { ...DEFAULT_CONFIG, streamFlushChars: 12, maxSpeechChunkChars: 25 }
     const drained = drainStreamChunks("First, second third fourth.", config, false)
 
     expect(drained.chunks.map((chunk) => chunk.text)).toEqual([])
@@ -178,7 +178,7 @@ describe("voice text pipeline", () => {
   })
 
   it("does not split streamed text on semicolons or colons", () => {
-    const config = { ...DEFAULT_CONFIG, streamSoftLimit: 12, speechChunkLength: 60 }
+    const config = { ...DEFAULT_CONFIG, streamFlushChars: 12, maxSpeechChunkChars: 60 }
     const drained = drainStreamChunks("First; second: third fourth", config, false)
 
     expect(drained.chunks.map((chunk) => chunk.text)).toEqual([])

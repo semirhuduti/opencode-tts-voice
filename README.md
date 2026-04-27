@@ -16,14 +16,14 @@ Still wip, make sure to install sharp versions if you want a bit more reliabilit
 - reads assistant responses aloud while they stream in the TUI
 - adds TUI shortcuts for pause, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
-- uses local playback via `ffplay`, `mpv`, `paplay`, or `aplay`
+- uses local playback via `mpv`, `ffplay`, `paplay`, or `aplay`
 - prefers GPU-capable execution when available and falls back to CPU automatically
 
 ## Requirements
 
 - Linux, macOS, or Windows
 - OpenCode with plugin support
-- one of `ffplay`, `mpv`, `paplay`, or `aplay` available on the system
+- one of `mpv`, `ffplay`, `paplay`, or `aplay` available on the system. `mpv` is recommended.
 
 Optional:
 
@@ -55,7 +55,7 @@ Example `~/.config/opencode/tui.json`:
         "voice": "am_adam",
         "speed": 1.1,
         "dtype": "q4",
-        "voiceBlocks": ["message", "idle"],
+        "speechBlocks": ["message", "idle"],
         "shortcuts": {
           "pause": "f6",
           "skipLatest": "f7",
@@ -81,20 +81,20 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `dtype` | string | `q8` | Model precision. Accepted values: `fp32`, `fp16`, `q4`, `q4f16`, `q8`. |
 | `model` | string | `onnx-community/Kokoro-82M-v1.0-ONNX` | Model ID or compatible local model path. |
 | `cacheDir` | string | Transformers.js default cache | Directory used for model downloads and cache data. |
-| `playerBin` | string | `auto` | Playback backend command. `auto` picks the first installed backend from `ffplay`, `mpv`, `paplay`, or `aplay`. |
-| `playerArgs` | string or string[] | `[]` | Additional arguments passed to the playback backend helper. |
-| `readResponses` | boolean | `true` | Speak streamed assistant responses. |
-| `readSubagentResponses` | boolean | `false` | Speak responses from subagent child sessions. Disabled by default so only the main agent is spoken. |
-| `announceOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
-| `idleMessage` | string | `Task completed.` | Idle message text. |
-| `voiceBlocks` | string[] | `["message", "idle"]` | Fine-grained speech source filter. Accepted values: `reason`, `message`, `idle`. Reasoning is opt-in. |
-| `speechChunkLength` | number | `1000` | Maximum chunk size sent to the TTS generator. |
-| `streamSoftLimit` | number | `180` | Target flush size for streamed assistant text. |
-| `maxTextLength` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
+| `audioPlayer` | string | `auto` | Playback backend command. `auto` picks the first installed backend from `ffplay`, `mpv`, `paplay`, or `aplay`. `mpv` is recommended. |
+| `audioPlayerArgs` | string or string[] | `[]` | Additional arguments passed to the playback backend helper. |
+| `speakResponses` | boolean | `true` | Speak streamed assistant responses. |
+| `speakSubagentResponses` | boolean | `false` | Speak responses from subagent child sessions. Disabled by default so only the main agent is spoken. |
+| `speakOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
+| `idleAnnouncement` | string | `Task completed.` | Idle announcement text. |
+| `speechBlocks` | string[] | `["message", "idle"]` | Fine-grained speech source filter. Accepted values: `reason`, `message`, `idle`. Reasoning is opt-in. |
+| `maxSpeechChunkChars` | number | `1000` | Maximum chunk size sent to the TTS generator. |
+| `streamFlushChars` | number | `180` | Target flush size for streamed assistant text. |
+| `maxSpeechChars` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
 | `trimSilenceThreshold` | number | `0.001` | Silence threshold used when trimming generated chunks. |
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
-| `defaultChunkPauseMs` | number | `140` | Pause added after normal chunks. |
-| `clauseChunkPauseMs` | number | `220` | Pause added after sentence, clause, or newline-ending chunks. |
+| `normalPauseMs` | number | `240` | Pause added after normal chunks. |
+| `sentencePauseMs` | number | `420` | Pause added after sentence, clause, or newline-ending chunks. |
 | `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
 | `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
@@ -122,12 +122,14 @@ When the TUI entrypoint is active, the plugin also renders compact shortcut chip
 - shortcut keys are orange
 - action icons are blue, except the toggle icon which is green for `on` and gray for `off`
 
-`voiceBlocks` works as a source filter on top of the existing booleans:
+`speechBlocks` works as a source filter on top of the speech toggles:
 
-- `readResponses` still enables or disables streamed response playback
-- `readSubagentResponses` enables or disables speech from subagent child sessions
-- `announceOnIdle` still enables or disables idle announcements
-- `voiceBlocks` decides which of `reason`, `message`, and `idle` are allowed to be spoken when those features are active
+- `speakResponses` enables or disables streamed response playback
+- `speakSubagentResponses` enables or disables speech from subagent child sessions
+- `speakOnIdle` enables or disables idle announcements
+- `speechBlocks` decides which of `reason`, `message`, and `idle` are allowed to be spoken when those features are active
+
+Removed alpha option names are not accepted as aliases. Replace `playerBin` with `audioPlayer`, `playerArgs` with `audioPlayerArgs`, `readResponses` with `speakResponses`, `readSubagentResponses` with `speakSubagentResponses`, `announceOnIdle` with `speakOnIdle`, `idleMessage` with `idleAnnouncement`, `voiceBlocks` with `speechBlocks`, `speechChunkLength` with `maxSpeechChunkChars`, `streamSoftLimit` with `streamFlushChars`, `maxTextLength` with `maxSpeechChars`, `defaultChunkPauseMs` with `normalPauseMs`, and `clauseChunkPauseMs` with `sentencePauseMs`.
 
 ## Publish Notes
 
@@ -142,8 +144,8 @@ This package is intended to be published as a public scoped npm package.
 Supported backends:
 
 - `auto` (default)
-- `ffplay`
 - `mpv`
+- `ffplay`
 - `paplay`
 - `aplay`
 
@@ -156,8 +158,8 @@ Example backend override:
     [
       "@semirhuduti/opencode-tts-voice",
       {
-        "playerBin": "mpv",
-        "playerArgs": ["--volume=70"]
+        "audioPlayer": "mpv",
+        "audioPlayerArgs": ["--volume=70"]
       }
     ]
   ]
