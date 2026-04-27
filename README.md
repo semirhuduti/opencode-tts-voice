@@ -101,7 +101,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 
 ## Logging
 
-Runtime logging defaults to warnings and errors only to avoid terminal redraw pressure in the TUI. Set `OPENCODE_TTS_VOICE_LOG_LEVEL=debug` or `info` when diagnosing plugin behavior. Helper process logs are silent by default because stdout is used for the helper protocol; set `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL=warn` or `error` only when debugging helper startup failures.
+Runtime logging defaults to warnings and errors only to avoid terminal redraw pressure in the TUI. Enabled logs are also written beside OpenCode's own logs at `${XDG_DATA_HOME:-~/.local/share}/opencode/log/opencode-tts-voice-<timestamp>.log`. Set `OPENCODE_TTS_VOICE_LOG_LEVEL=debug` or `info` when diagnosing plugin behavior. Helper process logs are silent by default because stdout is used for the helper protocol; set `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL=warn` or `error` only when debugging helper startup failures.
 
 ## Shortcuts
 
