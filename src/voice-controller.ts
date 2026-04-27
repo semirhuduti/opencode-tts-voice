@@ -28,6 +28,7 @@ type StreamBuffer = {
   textLength: number
   buffer: string
   sanitizer: SpeechSanitizer
+  completed: boolean
 }
 
 type GenerateTask = {
@@ -72,6 +73,7 @@ const READY_AUDIO_BUFFER = 1
 const LISTENER_NOTIFY_DELAY_MS = 50
 const STREAM_COALESCE_QUEUE_THRESHOLD = 4
 const MAX_STREAM_QUEUE_ITEMS = 32
+const MAX_COMPLETED_STREAMS = 200
 
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
@@ -82,6 +84,22 @@ function appendSpeechBuffer(buffer: string, text: string) {
   const next = text.trim()
   if (!next) return buffer
   return buffer ? `${buffer} ${next}` : next
+}
+
+function createStreamBuffer(
+  sessionID: string,
+  messageID: string,
+  block: Extract<VoiceBlock, "reason" | "message">,
+): StreamBuffer {
+  return {
+    sessionID,
+    messageID,
+    block,
+    textLength: 0,
+    buffer: "",
+    sanitizer: createSpeechSanitizer(),
+    completed: false,
+  }
 }
 
 function isMissingBinary(error: unknown): error is NodeJS.ErrnoException {
@@ -987,14 +1005,10 @@ export class VoiceController {
       return
     }
 
-    const stream = this.streams.get(event.partID) ?? {
-      sessionID: event.sessionID,
-      messageID: event.messageID,
-      block,
-      textLength: 0,
-      buffer: "",
-      sanitizer: createSpeechSanitizer(),
-    }
+    const existing = this.streams.get(event.partID)
+    if (existing?.completed) return
+
+    const stream = existing ?? createStreamBuffer(event.sessionID, event.messageID, block)
     stream.block = block
 
     stream.textLength += event.delta.length
@@ -1043,14 +1057,10 @@ export class VoiceController {
     }
 
     const text = typeof part.text === "string" ? part.text : ""
-    const stream = this.streams.get(part.id) ?? {
-      sessionID: part.sessionID,
-      messageID: part.messageID,
-      block,
-      textLength: 0,
-      buffer: "",
-      sanitizer: createSpeechSanitizer(),
-    }
+    const existing = this.streams.get(part.id)
+    if (existing?.completed) return
+
+    const stream = existing ?? createStreamBuffer(part.sessionID, part.messageID, block)
     stream.block = block
 
     let nextText = ""
@@ -1092,12 +1102,31 @@ export class VoiceController {
         partID: part.id,
         finalTextLength: text.length,
       })
-      this.streams.delete(part.id)
+      stream.completed = true
+      stream.buffer = ""
+      this.streams.set(part.id, stream)
+      this.trimCompletedStreams()
       this.scheduleLatestRefresh(part.sessionID, part.messageID)
       return
     }
 
     this.streams.set(part.id, stream)
+  }
+
+  private trimCompletedStreams() {
+    let overflow = 0
+    for (const stream of this.streams.values()) {
+      if (stream.completed) overflow += 1
+    }
+    overflow -= MAX_COMPLETED_STREAMS
+    if (overflow <= 0) return
+
+    for (const [partID, stream] of this.streams) {
+      if (!stream.completed) continue
+      this.streams.delete(partID)
+      overflow -= 1
+      if (overflow <= 0) return
+    }
   }
 
   private async onSessionIdle(sessionID: string) {
