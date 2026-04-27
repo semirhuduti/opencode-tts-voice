@@ -13,12 +13,34 @@ import type { SpeechSource, VoiceBlock, VoiceConfig, VoiceState } from "./voice-
 
 type Listener = () => void
 
+type QueueTrace = {
+  origin: string
+  eventSeq?: number
+  sessionID?: string
+  messageID?: string
+  partID?: string
+  block?: Extract<VoiceBlock, "reason" | "message">
+  field?: string
+  startOffset?: number
+  endOffset?: number
+  fullTextLength?: number
+  deltaLength?: number
+  nextTextLength?: number
+  chunkIndex?: number
+  chunkCount?: number
+  restLength?: number
+  finalFlush?: boolean
+  cursorReset?: boolean
+  replaySource?: "cache" | "state"
+}
+
 type QueueItem = {
   id: number
   epoch: number
   text: string
   pauseMs: number
   source: SpeechSource
+  trace?: QueueTrace
 }
 
 type StreamBuffer = {
@@ -69,11 +91,23 @@ type SessionParentInfo = {
   parentID?: string | null
 }
 
+type RecentChunkTrace = {
+  queuedAt: number
+  itemID: number
+  source: SpeechSource
+  epoch: number
+  trace?: QueueTrace
+  preview: string
+}
+
 const READY_AUDIO_BUFFER = 1
 const LISTENER_NOTIFY_DELAY_MS = 50
 const STREAM_COALESCE_QUEUE_THRESHOLD = 4
 const MAX_STREAM_QUEUE_ITEMS = 32
 const MAX_COMPLETED_STREAMS = 200
+const RECENT_CHUNK_TRACE_LIMIT = 200
+const RECENT_CHUNK_TRACE_WINDOW_MS = 5 * 60 * 1000
+const LOG_PREVIEW_LENGTH = 120
 
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
@@ -84,6 +118,20 @@ function appendSpeechBuffer(buffer: string, text: string) {
   const next = text.trim()
   if (!next) return buffer
   return buffer ? `${buffer} ${next}` : next
+}
+
+function textPreview(text: string) {
+  const compact = text.replace(/\s+/g, " ").trim()
+  return compact.length > LOG_PREVIEW_LENGTH ? `${compact.slice(0, LOG_PREVIEW_LENGTH)}...` : compact
+}
+
+function textFingerprint(text: string) {
+  let hash = 2166136261
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${text.length}:${(hash >>> 0).toString(16).padStart(8, "0")}`
 }
 
 function createStreamBuffer(
@@ -143,6 +191,7 @@ export class VoiceController {
   private readonly latestBySession = new Map<string, string>()
   private readonly streams = new Map<string, StreamBuffer>()
   private readonly partTasks = new Map<string, Promise<void>>()
+  private readonly recentChunkTraces = new Map<string, RecentChunkTrace>()
   private readonly cleanup: Array<() => void> = []
   private readonly timers = new Set<NodeJS.Timeout>()
   private readonly runtime: TtsHelperRuntime
@@ -158,6 +207,7 @@ export class VoiceController {
   private disposed = false
   private queueID = 0
   private readyAudioID = 0
+  private eventSeq = 0
   private epoch = 0
   private lastToastAt = 0
   private resolvedPlayer?: string
@@ -282,7 +332,8 @@ export class VoiceController {
       return false
     }
 
-    const latest = this.latestBySession.get(activeSessionID) ?? this.collectLatestMessageText(activeSessionID)
+    const cachedLatest = this.latestBySession.get(activeSessionID)
+    const latest = cachedLatest ?? this.collectLatestMessageText(activeSessionID)
     if (!latest) {
       this.log.warn("replay latest unavailable", { sessionID: activeSessionID })
       this.api.ui.toast({ variant: "warning", message: "No assistant message available" })
@@ -292,9 +343,18 @@ export class VoiceController {
     await this.resetQueue(false)
     this.setState({ paused: false })
 
-    for (const chunk of splitPlaybackText(latest, this.config)) {
-      this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "latest")
-    }
+    const replaySource = cachedLatest ? "cache" : "state"
+    const chunks = splitPlaybackText(latest, this.config)
+    chunks.forEach((chunk, index) => {
+      this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "latest", {
+        origin: "replayLatest",
+        sessionID: activeSessionID,
+        replaySource,
+        fullTextLength: latest.length,
+        chunkIndex: index,
+        chunkCount: chunks.length,
+      })
+    })
 
     if (!this.queue.length) {
       this.api.ui.toast({ variant: "warning", message: "No assistant message available" })
@@ -306,6 +366,9 @@ export class VoiceController {
       sessionID: activeSessionID,
       queueLength: this.queue.length,
       textLength: latest.length,
+      replaySource,
+      fingerprint: textFingerprint(latest),
+      preview: textPreview(latest),
     })
     this.api.ui.toast({ variant: "info", message: "Replaying latest assistant message" })
     return true
@@ -484,9 +547,12 @@ export class VoiceController {
       this.log.info("queue item start", {
         itemID: item.id,
         source: item.source,
-        textLength: item.text.length,
-        pauseMs: item.pauseMs,
-        queueRemaining: this.queue.length,
+      textLength: item.text.length,
+      fingerprint: textFingerprint(item.text),
+      preview: textPreview(item.text),
+      trace: item.trace,
+      pauseMs: item.pauseMs,
+      queueRemaining: this.queue.length,
       })
 
       const current: GenerateTask = {
@@ -591,6 +657,8 @@ export class VoiceController {
             readyAudioID: item.id,
             sourceItemID: item.sourceItem.id,
             textLength: item.text.length,
+            fingerprint: textFingerprint(item.text),
+            preview: textPreview(item.text),
             readyAudioRemaining: this.readyAudio.length,
           })
           await this.playFile(item.file, current)
@@ -618,6 +686,8 @@ export class VoiceController {
           readyAudioID: item.id,
           sourceItemID: item.sourceItem.id,
           kind: item.kind,
+          source: item.sourceItem.source,
+          trace: item.sourceItem.trace,
         })
       } catch (error) {
         this.log.error("ready audio failed", {
@@ -796,17 +866,27 @@ export class VoiceController {
     const items: QueueItem[] = []
     const seen = new Set<number>()
 
-    const add = (item: QueueItem | undefined) => {
+    const add = (item: QueueItem | undefined, bufferSource: string) => {
       if (!item || this.isStale(item) || seen.has(item.id)) return
       seen.add(item.id)
       items.push(item)
+      this.log.info("buffered item retained", {
+        bufferSource,
+        itemID: item.id,
+        source: item.source,
+        epoch: item.epoch,
+        textLength: item.text.length,
+        fingerprint: textFingerprint(item.text),
+        preview: textPreview(item.text),
+        trace: item.trace,
+      })
     }
 
-    if (this.currentPlay?.item.kind === "audio") add(this.currentPlay.item.sourceItem)
+    if (this.currentPlay?.item.kind === "audio") add(this.currentPlay.item.sourceItem, "currentPlay")
     for (const item of this.readyAudio) {
-      if (item.kind === "audio") add(item.sourceItem)
+      if (item.kind === "audio") add(item.sourceItem, "readyAudio")
     }
-    add(this.currentGenerate?.item)
+    add(this.currentGenerate?.item, "currentGenerate")
 
     return items
   }
@@ -823,50 +903,104 @@ export class VoiceController {
     return item.epoch !== this.epoch || !this.state.enabled
   }
 
-  private enqueuePreparedChunk(text: string, pauseMs: number, source: SpeechSource) {
+  private enqueuePreparedChunk(text: string, pauseMs: number, source: SpeechSource, trace?: QueueTrace) {
     if (!text.trim()) return
-    if (source === "stream" && this.coalesceStreamChunk(text, pauseMs)) {
+    if (source === "stream" && this.coalesceStreamChunk(text, pauseMs, trace)) {
       this.trimStreamQueue()
       return
     }
 
+    const fingerprint = textFingerprint(text)
+    const duplicate = this.recentChunkTraces.get(fingerprint)
     const item = {
       id: this.queueID++,
       epoch: this.epoch,
       text,
       pauseMs,
       source,
+      trace,
     }
     this.queue.push(item)
+    if (duplicate) {
+      this.log.warn("duplicate chunk enqueued", {
+        itemID: item.id,
+        source,
+        epoch: item.epoch,
+        textLength: text.length,
+        fingerprint,
+        preview: textPreview(text),
+        trace,
+        previousItemID: duplicate.itemID,
+        previousSource: duplicate.source,
+        previousEpoch: duplicate.epoch,
+        previousAgeMs: Date.now() - duplicate.queuedAt,
+        previousPreview: duplicate.preview,
+        previousTrace: duplicate.trace,
+      })
+    }
+    this.rememberChunkTrace(fingerprint, item, text)
     this.log.info("chunk enqueued", {
       itemID: item.id,
       source,
       epoch: item.epoch,
       textLength: text.length,
+      fingerprint,
       pauseMs,
       queueLength: this.queue.length,
-      preview: text.slice(0, 80),
+      preview: textPreview(text),
+      trace,
     })
     if (source === "stream") this.trimStreamQueue()
   }
 
-  private coalesceStreamChunk(text: string, pauseMs: number) {
+  private coalesceStreamChunk(text: string, pauseMs: number, trace?: QueueTrace) {
     if (this.queue.length < STREAM_COALESCE_QUEUE_THRESHOLD) return false
 
     const previous = this.queue.at(-1)
     if (!previous || previous.source !== "stream" || previous.epoch !== this.epoch) return false
 
+    const previousFingerprint = textFingerprint(previous.text)
     const merged = `${previous.text} ${text}`.trim()
     if (merged.length > this.config.speechChunkLength) return false
 
     previous.text = merged
     previous.pauseMs = Math.max(previous.pauseMs, pauseMs)
+    previous.trace = {
+      ...previous.trace,
+      origin: "stream.coalesced",
+      chunkCount: (previous.trace?.chunkCount ?? 1) + 1,
+      restLength: trace?.restLength ?? previous.trace?.restLength,
+    }
+    const fingerprint = textFingerprint(previous.text)
+    this.recentChunkTraces.delete(previousFingerprint)
+    this.rememberChunkTrace(fingerprint, previous, previous.text)
     this.log.debug("stream chunk coalesced", {
       itemID: previous.id,
       textLength: previous.text.length,
+      fingerprint,
+      addedFingerprint: textFingerprint(text),
       queueLength: this.queue.length,
+      addedTrace: trace,
+      trace: previous.trace,
     })
     return true
+  }
+
+  private rememberChunkTrace(fingerprint: string, item: QueueItem, text: string) {
+    const now = Date.now()
+    this.recentChunkTraces.set(fingerprint, {
+      queuedAt: now,
+      itemID: item.id,
+      source: item.source,
+      epoch: item.epoch,
+      trace: item.trace,
+      preview: textPreview(text),
+    })
+
+    for (const [key, value] of this.recentChunkTraces) {
+      if (this.recentChunkTraces.size <= RECENT_CHUNK_TRACE_LIMIT && now - value.queuedAt <= RECENT_CHUNK_TRACE_WINDOW_MS) break
+      this.recentChunkTraces.delete(key)
+    }
   }
 
   private trimStreamQueue() {
@@ -894,15 +1028,21 @@ export class VoiceController {
       this.log.info("pause queued", {
         readyAudioID: item.id,
         sourceItemID: item.sourceItem.id,
+        source: item.sourceItem.source,
         durationMs: item.durationMs,
         readyAudioLength: this.readyAudio.length,
+        trace: item.sourceItem.trace,
       })
     } else {
       this.log.info("audio queued", {
         readyAudioID: item.id,
         sourceItemID: item.sourceItem.id,
+        source: item.sourceItem.source,
         textLength: item.text.length,
+        fingerprint: textFingerprint(item.text),
+        preview: textPreview(item.text),
         readyAudioLength: this.readyAudio.length,
+        trace: item.sourceItem.trace,
       })
     }
     this.notify()
@@ -982,18 +1122,37 @@ export class VoiceController {
   }
 
   private async onMessagePartDelta(event: { sessionID: string; messageID: string; partID: string; field: string; delta: string }) {
+    const eventSeq = this.eventSeq++
     if (!this.config.readResponses) return
     if (!(await this.shouldSpeakSession(event.sessionID))) {
+      this.log.debug("stream delta skipped for session", {
+        eventSeq,
+        sessionID: event.sessionID,
+        messageID: event.messageID,
+        partID: event.partID,
+        field: event.field,
+      })
       this.streams.delete(event.partID)
       return
     }
 
     const block = this.blockForDelta(event)
-    if (!block || !this.isVoiceBlockEnabled(block)) return
+    if (!block || !this.isVoiceBlockEnabled(block)) {
+      this.log.debug("stream delta skipped for block", {
+        eventSeq,
+        sessionID: event.sessionID,
+        messageID: event.messageID,
+        partID: event.partID,
+        field: event.field,
+        block,
+      })
+      return
+    }
 
     const message = this.lookupMessage(event.sessionID, event.messageID)
     if (!message || message.role !== "assistant" || message.summary || !this.state.enabled) {
       this.log.warn("stream delta ignored", {
+        eventSeq,
         sessionID: event.sessionID,
         messageID: event.messageID,
         partID: event.partID,
@@ -1006,46 +1165,111 @@ export class VoiceController {
     }
 
     const existing = this.streams.get(event.partID)
-    if (existing?.completed) return
+    if (existing?.completed) {
+      this.log.warn("stream delta ignored after completion", {
+        eventSeq,
+        sessionID: event.sessionID,
+        messageID: event.messageID,
+        partID: event.partID,
+        field: event.field,
+        deltaLength: event.delta.length,
+        streamTextLength: existing.textLength,
+        preview: textPreview(event.delta),
+      })
+      return
+    }
 
     const stream = existing ?? createStreamBuffer(event.sessionID, event.messageID, block)
     stream.block = block
 
+    const startOffset = stream.textLength
     stream.textLength += event.delta.length
     stream.buffer = appendSpeechBuffer(stream.buffer, stream.sanitizer.push(event.delta, false))
+    this.log.debug("stream delta accepted", {
+      eventSeq,
+      sessionID: event.sessionID,
+      messageID: event.messageID,
+      partID: event.partID,
+      block,
+      field: event.field,
+      deltaLength: event.delta.length,
+      startOffset,
+      endOffset: stream.textLength,
+      bufferLength: stream.buffer.length,
+      deltaFingerprint: textFingerprint(event.delta),
+      preview: textPreview(event.delta),
+      newStream: !existing,
+    })
 
     const drained = drainStreamChunks(stream.buffer, this.config, false)
     stream.buffer = drained.rest
     if (drained.chunks.length > 0) {
       this.log.info("stream chunks drained", {
+        eventSeq,
         sessionID: event.sessionID,
         messageID: event.messageID,
         partID: event.partID,
+        block,
+        field: event.field,
+        startOffset,
+        endOffset: stream.textLength,
         chunkCount: drained.chunks.length,
         restLength: drained.rest.length,
       })
     }
-    for (const chunk of drained.chunks) {
-      this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "stream")
-    }
+    drained.chunks.forEach((chunk, index) => {
+      this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "stream", {
+        origin: "message.part.delta",
+        eventSeq,
+        sessionID: event.sessionID,
+        messageID: event.messageID,
+        partID: event.partID,
+        block,
+        field: event.field,
+        startOffset,
+        endOffset: stream.textLength,
+        deltaLength: event.delta.length,
+        chunkIndex: index,
+        chunkCount: drained.chunks.length,
+        restLength: drained.rest.length,
+      })
+    })
 
     this.streams.set(event.partID, stream)
     if (drained.chunks.length > 0) this.notify()
   }
 
   private async onMessagePartUpdated(part: Part) {
+    const eventSeq = this.eventSeq++
     if (part.type !== "text" && part.type !== "reasoning") return
     if (!(await this.shouldSpeakSession(part.sessionID))) {
+      this.log.debug("part update skipped for session", {
+        eventSeq,
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        type: part.type,
+      })
       this.streams.delete(part.id)
       return
     }
 
     const block = this.blockForPart(part)
-    if (!block) return
+    if (!block) {
+      this.log.debug("part update skipped for block", {
+        eventSeq,
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        type: part.type,
+      })
+      return
+    }
 
     const message = this.lookupMessage(part.sessionID, part.messageID)
     if (!message || message.role !== "assistant" || message.summary) {
       this.log.warn("part update ignored", {
+        eventSeq,
         sessionID: part.sessionID,
         messageID: part.messageID,
         partID: part.id,
@@ -1058,15 +1282,44 @@ export class VoiceController {
 
     const text = typeof part.text === "string" ? part.text : ""
     const existing = this.streams.get(part.id)
-    if (existing?.completed) return
+    if (existing?.completed) {
+      this.log.warn("part update ignored after completion", {
+        eventSeq,
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        block,
+        textLength: text.length,
+        streamTextLength: existing.textLength,
+        ended: Boolean(part.time?.end),
+        fingerprint: textFingerprint(text),
+        preview: textPreview(text),
+      })
+      return
+    }
 
     const stream = existing ?? createStreamBuffer(part.sessionID, part.messageID, block)
     stream.block = block
 
     let nextText = ""
+    const startOffset = stream.textLength
+    let cursorReset = false
     if (text.length >= stream.textLength) {
       nextText = text.slice(stream.textLength)
     } else {
+      cursorReset = true
+      this.log.warn("part update cursor reset", {
+        eventSeq,
+        sessionID: part.sessionID,
+        messageID: part.messageID,
+        partID: part.id,
+        block,
+        previousTextLength: stream.textLength,
+        textLength: text.length,
+        ended: Boolean(part.time?.end),
+        fingerprint: textFingerprint(text),
+        preview: textPreview(text),
+      })
       stream.buffer = ""
       stream.sanitizer = createSpeechSanitizer()
       nextText = text
@@ -1074,33 +1327,76 @@ export class VoiceController {
     stream.textLength = text.length
     const finalFlush = Boolean(part.time?.end)
     stream.buffer = appendSpeechBuffer(stream.buffer, stream.sanitizer.push(nextText, finalFlush))
+    this.log.debug("part update accepted", {
+      eventSeq,
+      sessionID: part.sessionID,
+      messageID: part.messageID,
+      partID: part.id,
+      block,
+      startOffset,
+      endOffset: stream.textLength,
+      textLength: text.length,
+      nextTextLength: nextText.length,
+      bufferLength: stream.buffer.length,
+      finalFlush,
+      cursorReset,
+      nextFingerprint: textFingerprint(nextText),
+      preview: textPreview(nextText),
+      newStream: !existing,
+    })
 
     if (this.state.enabled && this.config.readResponses && this.isVoiceBlockEnabled(block)) {
       const drained = drainStreamChunks(stream.buffer, this.config, Boolean(part.time?.end))
       stream.buffer = drained.rest
       if (drained.chunks.length > 0 || part.time?.end) {
         this.log.info("part updated", {
+          eventSeq,
           sessionID: part.sessionID,
           messageID: part.messageID,
           partID: part.id,
+          block,
+          startOffset,
+          endOffset: stream.textLength,
           textLength: text.length,
+          nextTextLength: nextText.length,
           chunkCount: drained.chunks.length,
           restLength: drained.rest.length,
           ended: Boolean(part.time?.end),
+          cursorReset,
         })
       }
-      for (const chunk of drained.chunks) {
-        this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "stream")
-      }
+      drained.chunks.forEach((chunk, index) => {
+        this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "stream", {
+          origin: "message.part.updated",
+          eventSeq,
+          sessionID: part.sessionID,
+          messageID: part.messageID,
+          partID: part.id,
+          block,
+          startOffset,
+          endOffset: stream.textLength,
+          fullTextLength: text.length,
+          nextTextLength: nextText.length,
+          chunkIndex: index,
+          chunkCount: drained.chunks.length,
+          restLength: drained.rest.length,
+          finalFlush,
+          cursorReset,
+        })
+      })
       this.notify()
     }
 
     if (part.time?.end) {
       this.log.info("part completed", {
+        eventSeq,
         sessionID: part.sessionID,
         messageID: part.messageID,
         partID: part.id,
+        block,
         finalTextLength: text.length,
+        finalFingerprint: textFingerprint(text),
+        preview: textPreview(text),
       })
       stream.completed = true
       stream.buffer = ""
@@ -1123,6 +1419,13 @@ export class VoiceController {
 
     for (const [partID, stream] of this.streams) {
       if (!stream.completed) continue
+      this.log.debug("completed stream trimmed", {
+        partID,
+        sessionID: stream.sessionID,
+        messageID: stream.messageID,
+        block: stream.block,
+        textLength: stream.textLength,
+      })
       this.streams.delete(partID)
       overflow -= 1
       if (overflow <= 0) return
@@ -1137,9 +1440,16 @@ export class VoiceController {
 
     this.log.info("session idle announcement", { sessionID })
 
-    for (const chunk of splitPlaybackText(this.config.idleMessage, this.config)) {
-      this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "idle")
-    }
+    const chunks = splitPlaybackText(this.config.idleMessage, this.config)
+    chunks.forEach((chunk, index) => {
+      this.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "idle", {
+        origin: "session.idle",
+        sessionID,
+        fullTextLength: this.config.idleMessage.length,
+        chunkIndex: index,
+        chunkCount: chunks.length,
+      })
+    })
     this.notify()
   }
 
@@ -1168,7 +1478,13 @@ export class VoiceController {
         return
       }
       this.latestBySession.set(sessionID, next)
-      this.log.info("latest refresh stored", { sessionID, messageID, textLength: next.length })
+      this.log.info("latest refresh stored", {
+        sessionID,
+        messageID,
+        textLength: next.length,
+        fingerprint: textFingerprint(next),
+        preview: textPreview(next),
+      })
     }, 0)
     this.timers.add(timer)
   }
