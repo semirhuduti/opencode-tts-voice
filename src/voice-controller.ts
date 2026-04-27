@@ -124,6 +124,7 @@ export class VoiceController {
   private readonly sessionParentLookups = new Map<string, Promise<string | undefined>>()
   private readonly latestBySession = new Map<string, string>()
   private readonly streams = new Map<string, StreamBuffer>()
+  private readonly partTasks = new Map<string, Promise<void>>()
   private readonly cleanup: Array<() => void> = []
   private readonly timers = new Set<NodeJS.Timeout>()
   private readonly runtime: TtsHelperRuntime
@@ -176,8 +177,12 @@ export class VoiceController {
       api.event.on("session.updated", (event) => this.cacheSession(event.properties.sessionID, event.properties.info)),
       api.event.on("session.deleted", (event) => this.forgetSession(event.properties.sessionID)),
       api.event.on("message.updated", (event) => this.runEventTask("message.updated", this.onMessageUpdated(event.properties.info))),
-      api.event.on("message.part.delta", (event) => this.runEventTask("message.part.delta", this.onMessagePartDelta(event.properties))),
-      api.event.on("message.part.updated", (event) => this.runEventTask("message.part.updated", this.onMessagePartUpdated(event.properties.part))),
+      api.event.on("message.part.delta", (event) =>
+        this.runPartEventTask(event.properties.partID, "message.part.delta", () => this.onMessagePartDelta(event.properties)),
+      ),
+      api.event.on("message.part.updated", (event) =>
+        this.runPartEventTask(event.properties.part.id, "message.part.updated", () => this.onMessagePartUpdated(event.properties.part)),
+      ),
       api.event.on("session.idle", (event) => this.runEventTask("session.idle", this.onSessionIdle(event.properties.sessionID))),
     )
 
@@ -358,6 +363,21 @@ export class VoiceController {
   private runEventTask(eventName: string, task: Promise<void>) {
     task.catch((error) => {
       this.log.warn("event handler failed", { eventName, error: formatError(error) })
+    })
+  }
+
+  private runPartEventTask(partID: string, eventName: string, task: () => Promise<void>) {
+    const previous = this.partTasks.get(partID) ?? Promise.resolve()
+    const next = previous
+      .catch(() => undefined)
+      .then(task)
+      .catch((error) => {
+        this.log.warn("event handler failed", { eventName, partID, error: formatError(error) })
+      })
+
+    this.partTasks.set(partID, next)
+    void next.finally(() => {
+      if (this.partTasks.get(partID) === next) this.partTasks.delete(partID)
     })
   }
 
@@ -764,8 +784,10 @@ export class VoiceController {
       items.push(item)
     }
 
-    add(this.currentPlay?.item.sourceItem)
-    for (const item of this.readyAudio) add(item.sourceItem)
+    if (this.currentPlay?.item.kind === "audio") add(this.currentPlay.item.sourceItem)
+    for (const item of this.readyAudio) {
+      if (item.kind === "audio") add(item.sourceItem)
+    }
     add(this.currentGenerate?.item)
 
     return items
