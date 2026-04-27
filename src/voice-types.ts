@@ -23,8 +23,6 @@ export type VoicePluginOptions = {
   speechChunkLength?: unknown
   streamSoftLimit?: unknown
   maxTextLength?: unknown
-  cpuLimitPercent?: unknown
-  cpuLimitConcurrency?: unknown
   trimSilenceThreshold?: unknown
   leadingAudioPadMs?: unknown
   defaultChunkPauseMs?: unknown
@@ -55,8 +53,6 @@ export type VoiceConfig = {
   speechChunkLength: number
   streamSoftLimit: number
   maxTextLength: number
-  cpuLimitPercent: number
-  cpuLimitConcurrency: number
   trimSilenceThreshold: number
   leadingAudioPadMs: number
   defaultChunkPauseMs: number

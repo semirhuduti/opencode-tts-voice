@@ -1,4 +1,3 @@
-import * as os from "node:os"
 import type { VoiceConfig, VoiceState } from "./voice-types.js"
 import type { VoiceLogger } from "./voice-log.js"
 
@@ -7,8 +6,6 @@ type TransformDevice = "auto" | "cpu" | "gpu" | "cuda" | "dml" | "wasm" | "webgp
 type RuntimeStatus = Partial<Pick<VoiceState, "device" | "error">>
 
 const ORT_SYMBOL = Symbol.for("onnxruntime")
-const SESSION_OPTIONS_SYMBOL = Symbol.for("opencode-tts-voice.session-options")
-const SESSION_PATCH_SYMBOL = Symbol.for("opencode-tts-voice.session-options-patched")
 
 type LoadedRuntime = {
   tts: {
@@ -19,28 +16,6 @@ type LoadedRuntime = {
     ): AsyncGenerator<{ text: string; data: Float32Array; sampling_rate: number }, void, void>
   }
   device: string
-}
-
-type OnnxSessionOptions = {
-  intraOpNumThreads: number
-  interOpNumThreads: number
-  executionMode: "sequential"
-}
-
-type TransformersModule = {
-  env: {
-    cacheDir?: string
-    backends?: {
-      onnx?: {
-        wasm?: {
-          numThreads?: number
-        }
-      }
-    }
-  }
-  StyleTextToSpeech2Model: {
-    from_pretrained: (model: string, options?: Record<string, unknown>) => Promise<unknown>
-  }
 }
 
 function unique<Value>(values: Value[]) {
@@ -72,54 +47,6 @@ function formatError(error: unknown) {
   return String(error)
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
-
-function availableCpuCount() {
-  return Math.max(1, os.availableParallelism?.() ?? os.cpus().length ?? 1)
-}
-
-function createSessionOptions(config: VoiceConfig) {
-  const cpuCount = availableCpuCount()
-  const totalThreads = Math.max(1, Math.floor((cpuCount * config.cpuLimitPercent) / 100))
-  const generationThreads = Math.max(1, Math.floor(totalThreads / config.cpuLimitConcurrency))
-  const sessionOptions: OnnxSessionOptions = {
-    intraOpNumThreads: generationThreads,
-    interOpNumThreads: 1,
-    executionMode: "sequential",
-  }
-
-  return {
-    cpuCount,
-    totalThreads,
-    generationThreads,
-    sessionOptions,
-  }
-}
-
-function patchStyleTextToSpeechLoader(transformers: TransformersModule) {
-  const globals = globalThis as Record<PropertyKey, unknown>
-  if (globals[SESSION_PATCH_SYMBOL]) return
-
-  // kokoro-js does not expose Transformers.js session options, so patch the model loader before Kokoro imports it.
-  const model = transformers.StyleTextToSpeech2Model
-  const original = model.from_pretrained.bind(model)
-  model.from_pretrained = (async (modelID: string, options: Record<string, unknown> = {}) => {
-    const sessionOptions = globals[SESSION_OPTIONS_SYMBOL]
-    const existing = options.session_options
-    return original(modelID, {
-      ...options,
-      session_options: {
-        ...(isRecord(existing) ? existing : {}),
-        ...(isRecord(sessionOptions) ? sessionOptions : {}),
-      },
-    })
-  }) as typeof model.from_pretrained
-
-  globals[SESSION_PATCH_SYMBOL] = true
-}
-
 async function prepareOnnxRuntime() {
   const ort = await import("onnxruntime-node")
   ;(ort.env as { logLevel?: string }).logLevel = "error"
@@ -128,22 +55,6 @@ async function prepareOnnxRuntime() {
 
 async function loadKokoroModule() {
   return import("kokoro-js")
-}
-
-async function configureTransformers(config: VoiceConfig, logger: VoiceLogger) {
-  const transformers = (await import("@huggingface/transformers")) as unknown as TransformersModule
-  const limits = createSessionOptions(config)
-  ;(globalThis as Record<PropertyKey, unknown>)[SESSION_OPTIONS_SYMBOL] = limits.sessionOptions
-  transformers.env.backends?.onnx?.wasm && (transformers.env.backends.onnx.wasm.numThreads = limits.generationThreads)
-  if (config.cacheDir) transformers.env.cacheDir = config.cacheDir
-  patchStyleTextToSpeechLoader(transformers)
-  logger.info("resource limits configured", {
-    cpuCount: limits.cpuCount,
-    cpuLimitPercent: config.cpuLimitPercent,
-    cpuLimitConcurrency: config.cpuLimitConcurrency,
-    totalThreads: limits.totalThreads,
-    generationThreads: limits.generationThreads,
-  })
 }
 
 export class KokoroRuntime {
@@ -244,11 +155,12 @@ export class KokoroRuntime {
       model: this.config.model,
       dtype: this.config.dtype,
       preferredDevice: this.config.device,
-      cpuLimitPercent: this.config.cpuLimitPercent,
-      cpuLimitConcurrency: this.config.cpuLimitConcurrency,
     })
     await prepareOnnxRuntime()
-    await configureTransformers(this.config, this.logger)
+    if (this.config.cacheDir) {
+      const { env } = await import("@huggingface/transformers")
+      env.cacheDir = this.config.cacheDir
+    }
     const { KokoroTTS, TextSplitterStream } = await loadKokoroModule()
     type KokoroLoaderOptions = {
       dtype: VoiceConfig["dtype"]

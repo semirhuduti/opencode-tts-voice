@@ -16,17 +16,7 @@
     "LICENSE"
   ],
   "type": "module",
-  "main": "./dist/server-plugin.js",
-  "types": "./dist/server-plugin.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/server-plugin.d.ts",
-      "import": "./dist/server-plugin.js"
-    },
-    "./server": {
-      "types": "./dist/server-plugin.d.ts",
-      "import": "./dist/server-plugin.js"
-    },
     "./tui": {
       "types": "./dist/tui-plugin.d.ts",
       "import": "./dist/tui-plugin.js"
