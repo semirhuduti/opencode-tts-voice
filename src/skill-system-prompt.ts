@@ -1,13 +1,26 @@
-import { readFile } from "node:fs/promises"
+import { readFile, readdir } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { KV_ENABLED } from "./voice-constants.js"
 
 export const TTS_FRIENDLY_SKILL_NAME = "tts-friendly-responses"
-
-const SKILL_MARKER = `opencode-tts-voice:${TTS_FRIENDLY_SKILL_NAME}`
 const DEFAULT_TTS_ENABLED = true
+const TOOL_OUTPUT_FILE_LIMIT = 10
+
+type ToolPartLike = {
+  type: string
+  tool?: string
+  state?: {
+    status?: string
+    input?: Record<string, unknown>
+    output?: string
+  }
+}
+
+type MessageLike = {
+  parts: readonly ToolPartLike[]
+}
 
 export type SkillSearchOptions = {
   directory: string
@@ -125,17 +138,66 @@ export async function readTtsFriendlySkill(options: SkillSearchOptions) {
   }
 }
 
-export function hasTtsFriendlySkillPrompt(system: readonly string[]) {
-  return system.some((item) => item.includes(SKILL_MARKER))
+async function sampledSkillFiles(skillFile: string, limit = TOOL_OUTPUT_FILE_LIMIT) {
+  const root = path.dirname(skillFile)
+  const queue = [root]
+  const files: string[] = []
+
+  while (queue.length > 0 && files.length < limit) {
+    const dir = queue.shift()
+    if (!dir) break
+
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      break
+    }
+
+    for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        queue.push(full)
+        continue
+      }
+      if (!entry.isFile() || entry.name === "SKILL.md") continue
+
+      files.push(full)
+      if (files.length >= limit) break
+    }
+  }
+
+  return files
 }
 
-export function createTtsFriendlySkillPrompt(content: string) {
+export async function createTtsFriendlySkillToolOutput(skill: { file: string; content: string }) {
+  const files = await sampledSkillFiles(skill.file)
+
   return [
-    `<!-- ${SKILL_MARKER} -->`,
-    "The following response style skill is active for this session. Follow it for user-facing responses unless the user explicitly asks for a different format.",
+    `<skill_content name="${TTS_FRIENDLY_SKILL_NAME}">`,
+    `# Skill: ${TTS_FRIENDLY_SKILL_NAME}`,
     "",
-    stripSkillFrontmatter(content),
+    stripSkillFrontmatter(skill.content),
+    "",
+    `Base directory for this skill: ${pathToFileURL(path.dirname(skill.file)).href}`,
+    "Relative paths in this skill, for example scripts slash or reference slash, are relative to this base directory.",
+    "Note: file list is sampled.",
+    "",
+    "<skill_files>",
+    ...files.map((file) => `<file>${file}</file>`),
+    "</skill_files>",
+    "</skill_content>",
   ]
     .filter(Boolean)
     .join("\n")
+}
+
+export function hasLoadedTtsFriendlySkill(messages: readonly MessageLike[]) {
+  return messages.some((message) =>
+    message.parts.some((part) => {
+      if (part.type !== "tool" || part.tool !== "skill" || part.state?.status !== "completed") return false
+
+      return part.state.input?.name === TTS_FRIENDLY_SKILL_NAME || part.state.output?.includes(`<skill_content name="${TTS_FRIENDLY_SKILL_NAME}">`) === true
+    }),
+  )
 }

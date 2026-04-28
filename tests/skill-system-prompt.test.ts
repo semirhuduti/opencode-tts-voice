@@ -3,8 +3,8 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
 import {
-  createTtsFriendlySkillPrompt,
-  hasTtsFriendlySkillPrompt,
+  createTtsFriendlySkillToolOutput,
+  hasLoadedTtsFriendlySkill,
   isTtsEnabled,
   readTtsFriendlySkill,
   stripSkillFrontmatter,
@@ -32,19 +32,40 @@ describe("skill system prompt", () => {
     expect(paths.at(-1)).toBe("/package/skill/SKILL.md")
   })
 
-  it("strips frontmatter before building the system prompt", () => {
+  it("strips frontmatter before building the skill tool output", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "opencode-tts-skill-output-"))
+    const file = path.join(dir, "SKILL.md")
     const content = ["---", `name: ${SKILL}`, "description: Test skill", "---", "# Speak Clearly"].join("\n")
+    await writeFile(file, content)
 
     expect(stripSkillFrontmatter(content)).toBe("# Speak Clearly")
-    expect(createTtsFriendlySkillPrompt(content)).toContain("# Speak Clearly")
-    expect(createTtsFriendlySkillPrompt(content)).not.toContain("description: Test skill")
+    const output = await createTtsFriendlySkillToolOutput({ file, content })
+    expect(output).toContain("# Speak Clearly")
+    expect(output).not.toContain("description: Test skill")
+    expect(output).toContain(`<skill_content name="${SKILL}">`)
   })
 
-  it("marks injected system prompts so they are not added twice", () => {
-    const prompt = createTtsFriendlySkillPrompt("Use spoken-friendly prose.")
+  it("detects when the skill has already been loaded into message history", () => {
+    const output = `<skill_content name="${SKILL}">\n# Skill: ${SKILL}\n</skill_content>`
 
-    expect(hasTtsFriendlySkillPrompt([prompt])).toBe(true)
-    expect(hasTtsFriendlySkillPrompt(["ordinary prompt"])).toBe(false)
+    expect(
+      hasLoadedTtsFriendlySkill([
+        {
+          parts: [
+            {
+              type: "tool",
+              tool: "skill",
+              state: {
+                status: "completed",
+                input: { name: SKILL },
+                output,
+              },
+            },
+          ],
+        },
+      ]),
+    ).toBe(true)
+    expect(hasLoadedTtsFriendlySkill([{ parts: [] }])).toBe(false)
   })
 
   it("reads the first existing skill candidate", async () => {
