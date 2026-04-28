@@ -4,6 +4,9 @@ import * as path from "node:path"
 
 type LogFields = Record<string, unknown>
 type LogLevel = "debug" | "info" | "warn" | "error" | "silent"
+type LoggerOptions = {
+  console?: boolean
+}
 
 const LOG_PREFIX = "[opencode-tts-voice]"
 const LOG_FILE_PREFIX = "opencode-tts-voice"
@@ -30,6 +33,11 @@ function readLevel(): LogLevel {
     default:
       return "warn"
   }
+}
+
+function readConsoleEnabled() {
+  const value = process.env.OPENCODE_TTS_VOICE_CONSOLE_LOG ?? process.env.OPENCODE_TTS_CONSOLE_LOG
+  return value === "1" || value?.toLowerCase() === "true"
 }
 
 function normalize(fields?: LogFields) {
@@ -85,12 +93,20 @@ function writeFile(method: "debug" | "info" | "warn" | "error", scope: string, m
   }
 }
 
-function write(method: "debug" | "info" | "warn" | "error", scope: string, message: string, fields?: LogFields) {
+function write(
+  method: "debug" | "info" | "warn" | "error",
+  scope: string,
+  message: string,
+  fields?: LogFields,
+  options?: LoggerOptions,
+) {
   if (LEVELS[method] < LEVELS[readLevel()]) return
 
   const payload = normalize(fields)
-  const line = `${LOG_PREFIX} ${scope} ${message}`
   writeFile(method, scope, message, payload)
+  if (!(options?.console ?? readConsoleEnabled())) return
+
+  const line = `${LOG_PREFIX} ${scope} ${message}`
   if (payload && Object.keys(payload).length > 0) {
     console[method](line, payload)
     return
@@ -98,19 +114,19 @@ function write(method: "debug" | "info" | "warn" | "error", scope: string, messa
   console[method](line)
 }
 
-export function createLogger(scope: string) {
+export function createLogger(scope: string, options?: LoggerOptions) {
   return {
     debug(message: string, fields?: LogFields) {
-      write("debug", scope, message, fields)
+      write("debug", scope, message, fields, options)
     },
     info(message: string, fields?: LogFields) {
-      write("info", scope, message, fields)
+      write("info", scope, message, fields, options)
     },
     warn(message: string, fields?: LogFields) {
-      write("warn", scope, message, fields)
+      write("warn", scope, message, fields, options)
     },
     error(message: string, fields?: LogFields) {
-      write("error", scope, message, fields)
+      write("error", scope, message, fields, options)
     },
   }
 }
