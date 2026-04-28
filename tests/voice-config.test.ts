@@ -15,6 +15,7 @@ describe("resolveVoiceConfig", () => {
       maxSpeechChunkChars: 500,
       streamFlushChars: 120,
       maxSpeechChars: 1500,
+      fileExtensions: [".Foo", "bar", "bad-value", " ", 42],
       normalPauseMs: 100,
       sentencePauseMs: 250,
     })
@@ -29,8 +30,21 @@ describe("resolveVoiceConfig", () => {
     expect(config.maxSpeechChunkChars).toBe(500)
     expect(config.streamFlushChars).toBe(120)
     expect(config.maxSpeechChars).toBe(1500)
+    expect(config.fileExtensions).toEqual(["foo", "bar"])
     expect(config.normalPauseMs).toBe(100)
     expect(config.sentencePauseMs).toBe(250)
+  })
+
+  it("accepts a single file extension string", () => {
+    const config = resolveVoiceConfig({ fileExtensions: " .FOO " })
+
+    expect(config.fileExtensions).toEqual(["foo"])
+  })
+
+  it("filters invalid file extension entries", () => {
+    const config = resolveVoiceConfig({ fileExtensions: ["foo", "d.ts", "*.vue", "bar2", "bad-value"] })
+
+    expect(config.fileExtensions).toEqual(["foo", "bar2"])
   })
 
   it("does not accept removed option names as aliases", () => {

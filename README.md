@@ -41,6 +41,26 @@ This package exposes a TUI plugin entrypoint and runs inside the OpenCode termin
 
 Speech generation runs in a persistent helper process so Kokoro/ONNX work and WAV encoding do not block the TUI event loop.
 
+## Recommended Agent Skill
+
+This package includes a `tts-friendly-responses` agent skill that helps agents write responses that are easier to understand through speech playback. The runtime sanitizer still cleans up streamed text before playback, but the skill improves the source response by encouraging spoken-friendly prose instead of visually dense formatting.
+
+Install the skill globally for OpenCode with the shared agent skills installer:
+
+```bash
+npx skills@latest add semirhuduti/opencode-tts-voice --skill tts-friendly-responses -g -a opencode
+```
+
+The plugin also includes a server entrypoint that loads this skill into each session's system context when the skill file exists and speech is enabled. Add the package to both OpenCode plugin configs if you want voice playback controls and automatic skill loading:
+
+```json
+{
+  "plugin": ["@semirhuduti/opencode-tts-voice"]
+}
+```
+
+Keep the TUI config shown below for the voice playback UI and shortcuts.
+
 ## Config
 
 Example `~/.config/opencode/tui.json`:
@@ -91,6 +111,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `maxSpeechChunkChars` | number | `1000` | Maximum chunk size sent to the TTS generator. |
 | `streamFlushChars` | number | `180` | Target flush size for streamed assistant text. |
 | `maxSpeechChars` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
+| `fileExtensions` | string or string[] | `[]` | Additional alphanumeric file extensions recognized by speech sanitization. Extends the built-in list. |
 | `trimSilenceThreshold` | number | `0.001` | Silence threshold used when trimming generated chunks. |
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `normalPauseMs` | number | `240` | Pause added after normal chunks. |

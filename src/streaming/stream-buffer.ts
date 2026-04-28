@@ -38,7 +38,7 @@ export class StreamBuffer {
   rawText = ""
   textLength = 0
   buffer = ""
-  sanitizer: SpeechSanitizer = createSpeechSanitizer()
+  sanitizer?: SpeechSanitizer
   completed = false
 
   constructor(
@@ -49,6 +49,7 @@ export class StreamBuffer {
 
   applyDelta(delta: string, block: StreamBlock, config: VoiceConfig, newStream: boolean) {
     this.block = block
+    this.sanitizer ??= createSpeechSanitizer(config)
     const startOffset = this.textLength
     this.rawText += delta
     this.textLength = this.rawText.length
@@ -70,6 +71,7 @@ export class StreamBuffer {
 
   applyFinal(text: string, block: StreamBlock, config: VoiceConfig, newStream: boolean) {
     this.block = block
+    this.sanitizer ??= createSpeechSanitizer(config)
     let nextText = ""
     const startOffset = this.rawText.length
     let cursorReset = false

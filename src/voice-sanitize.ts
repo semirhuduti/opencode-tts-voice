@@ -5,67 +5,134 @@ const INLINE_CODE_PLACEHOLDER = "Omitted inline code."
 const TECHNICAL_PLACEHOLDER = "Omitted technical output."
 const IDENTIFIER_PLACEHOLDER = "identifier omitted"
 
-const FILE_EXTENSIONS = new Set([
+export const BUILT_IN_FILE_EXTENSIONS = [
+  "astro",
+  "avif",
   "cjs",
   "css",
+  "csv",
+  "gif",
   "go",
   "html",
+  "jpeg",
+  "jpg",
   "js",
   "json",
   "jsx",
   "lock",
   "md",
   "mjs",
+  "png",
   "py",
   "rs",
   "sh",
+  "svg",
+  "svelte",
   "toml",
   "ts",
   "tsx",
   "txt",
+  "vue",
+  "webp",
+  "xml",
   "yaml",
   "yml",
-])
+] as const
 
 const EXTENSION_NAMES: Record<string, string> = {
+  astro: "Astro",
+  avif: "AVIF image",
   cjs: "CommonJS",
   css: "CSS",
+  csv: "CSV",
+  gif: "GIF image",
   go: "Go",
   html: "HTML",
+  jpeg: "JPEG image",
+  jpg: "JPEG image",
   js: "JavaScript",
   json: "JSON",
   jsx: "JavaScript React",
   lock: "lock",
   md: "Markdown",
   mjs: "JavaScript module",
+  png: "PNG image",
   py: "Python",
   rs: "Rust",
   sh: "shell",
+  svg: "SVG image",
+  svelte: "Svelte",
   toml: "TOML",
   ts: "TypeScript",
   tsx: "TypeScript React",
   txt: "text",
+  vue: "Vue",
+  webp: "WebP image",
+  xml: "XML",
   yaml: "YAML",
   yml: "YAML",
-}
-
-const FOLDER_NAMES: Record<string, string> = {
-  ".config": "dot config",
-  dist: "distribution",
-  docs: "docs",
-  lib: "library",
-  node_modules: "node modules",
-  scripts: "scripts",
-  src: "source",
-  test: "test",
-  tests: "tests",
 }
 
 const URL_PATTERN = /https?:\/\/\S+|www\.\S+/gi
 const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi
 const LONG_HEX_PATTERN = /\b[0-9a-f]{32,}\b/gi
-const PATH_PATTERN = /(^|[\s("'`])((?:~|\.{1,2}|\/)?(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+)(?=$|[\s).,;:'"`])/g
-const FILE_PATTERN = /(^|[\s("'`])([A-Za-z0-9_.-]+\.([A-Za-z0-9]+))(?=$|[\s).,;:'"`])/g
+const PATHISH_PATTERN = /(^|[\s("'`])((?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?(?:[A-Za-z0-9_.-]*[A-Za-z0-9][\\/])+(?:[A-Za-z0-9_.-]*[A-Za-z0-9])|(?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])(?:[A-Za-z0-9_.-]*[A-Za-z0-9])|[A-Za-z0-9_.-]*[A-Za-z0-9]\.([A-Za-z0-9]+))(?=$|[\s).,;:'"`])/g
+const HTTP_METHOD_CONTEXT = /\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+$/i
+const ABSOLUTE_FILESYSTEM_ROOTS = new Set([
+  "bin",
+  "boot",
+  "dev",
+  "etc",
+  "home",
+  "lib",
+  "lib64",
+  "media",
+  "mnt",
+  "opt",
+  "proc",
+  "root",
+  "run",
+  "sbin",
+  "srv",
+  "sys",
+  "tmp",
+  "usr",
+  "var",
+  "volumes",
+  "workspace",
+  "workspaces",
+  "users",
+])
+
+export type SpeechSanitizerOptions = {
+  fileExtensions?: readonly string[]
+}
+
+type SanitizerSettings = {
+  fileExtensions: Set<string>
+}
+
+type PathClassification = "file" | "folder" | "slash" | "none"
+
+export function normalizeFileExtensions(value: unknown) {
+  const input = typeof value === "string" ? [value] : Array.isArray(value) ? value : []
+  const normalized: string[] = []
+
+  for (const item of input) {
+    if (typeof item !== "string") continue
+    const extension = item.trim().replace(/^\./, "").toLowerCase()
+    if (!/^[a-z0-9]+$/.test(extension)) continue
+    if (!normalized.includes(extension)) normalized.push(extension)
+  }
+
+  return normalized
+}
+
+function createSanitizerSettings(options?: SpeechSanitizerOptions): SanitizerSettings {
+  return {
+    fileExtensions: new Set([...BUILT_IN_FILE_EXTENSIONS, ...normalizeFileExtensions(options?.fileExtensions)]),
+  }
+}
 
 function normalizeSpeechText(text: string) {
   return text
@@ -73,7 +140,11 @@ function normalizeSpeechText(text: string) {
     .replace(/\u00a0/g, " ")
     .replace(/[\t ]+/g, " ")
     .replace(/\s+([,.!?;:])/g, "$1")
-    .replace(/([,.!?;:])(?=[^\s\n])/g, "$1 ")
+    .replace(/([,!?;:])(?=[^\s\n])/g, "$1 ")
+    .replace(/\.([^\s\n])/g, (match: string, next: string, offset: number, input: string) => {
+      const previous = input[offset - 1]
+      return previous && /[A-Za-z0-9]/.test(previous) && /[a-z0-9]/.test(next) ? match : `. ${next}`
+    })
     .replace(/[ \t]*\n[ \t]*/g, "\n")
     .replace(/\n{2,}/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
@@ -136,72 +207,107 @@ function humanizeName(value: string) {
   return leadingDot ? `dot ${spoken}` : spoken
 }
 
-function humanizeFolder(value: string) {
-  return FOLDER_NAMES[value] ?? humanizeName(value)
-}
-
 function describeFile(file: string) {
   const match = file.match(/^(.*)\.([A-Za-z0-9]+)$/)
   if (!match) return `file ${humanizeName(file)}`
 
   const [, rawName, rawExtension] = match
   const extension = rawExtension.toLowerCase()
-  const fileType = EXTENSION_NAMES[extension] ?? `${humanizeName(extension)} file`
+  const fileType = EXTENSION_NAMES[extension] ?? humanizeName(extension)
   const name = rawName ? humanizeName(rawName) : "unnamed"
-  return `${fileType} file ${name}`
+  return `${name} ${fileType} file`
 }
 
-function describeFolders(folders: string[]) {
-  const meaningful = folders.filter((part) => part !== ".")
-  const visible = meaningful.length > 3 ? meaningful.slice(-3) : meaningful
-  if (visible.length === 0) return "the current folder"
-  if (visible.length === 1) return `the ${humanizeFolder(visible[0])} folder`
-  return visible.map((folder) => `the ${humanizeFolder(folder)} folder`).join(", then ")
+function describeFolder(folder: string) {
+  return `the ${humanizeName(folder)} folder`
 }
 
 function speakPath(value: string) {
-  const normalized = value.replace(/\\/g, "/").replace(/^['"`(]+|[,'"`.)]+$/g, "")
-  const parts = normalized.split("/").filter(Boolean)
+  const normalized = value
+    .replace(/\\/g, "/")
+    .replace(/^[A-Za-z]:\//, "/")
+    .replace(/^['"`(]+|[,'"`.)]+$/g, "")
+  const parts = normalized.split("/").filter((part) => part && part !== "." && part !== ".." && part !== "~")
   const last = parts.at(-1)
   if (!last) return "the current folder"
 
   const hasFile = /\.([A-Za-z0-9]+)$/.test(last)
-  if (!hasFile) return describeFolders(parts)
+  if (!hasFile) return describeFolder(last)
 
   const folders = parts.slice(0, -1)
   const file = describeFile(last)
-  return folders.length > 0 ? `the ${file} in ${describeFolders(folders)}` : `the ${file}`
+  const parent = folders.at(-1)
+  return parent ? `the ${file} in ${describeFolder(parent)}` : `the ${file}`
 }
 
-function rewritePaths(text: string) {
-  return text
-    .replace(PATH_PATTERN, (_match, prefix: string, path: string) => `${prefix}${speakPath(path)}`)
-    .replace(FILE_PATTERN, (match, prefix: string, file: string, extension: string) => {
-      if (!FILE_EXTENSIONS.has(extension.toLowerCase())) return match
-      return `${prefix}${speakPath(file)}`
-    })
+function speakSlashPhrase(value: string) {
+  return value.replace(/\//g, " slash ").replace(/\s+/g, " ").trim()
 }
 
-function looksLikePath(value: string) {
-  if (value.includes("/")) return true
-  const extension = value.match(/\.([A-Za-z0-9]+)$/)?.[1]
-  return Boolean(extension && FILE_EXTENSIONS.has(extension.toLowerCase()))
+function pathParts(value: string) {
+  return value.replace(/\\/g, "/").replace(/^[A-Za-z]:\//, "/").split("/").filter(Boolean)
 }
 
-function shouldOmitInlineCode(value: string) {
+function startsWithExplicitPathMarker(value: string) {
+  return /^(?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/])/.test(value)
+}
+
+function isRecognizedAbsolutePath(value: string) {
+  if (!/^[\\/]/.test(value)) return false
+  const root = pathParts(value)[0]?.toLowerCase()
+  return Boolean(root && ABSOLUTE_FILESYSTEM_ROOTS.has(root))
+}
+
+function classifyPathish(value: string, contextBefore: string, settings: SanitizerSettings): PathClassification {
+  const hasSlash = value.includes("/")
+  const hasBackslash = value.includes("\\")
+  const hasSeparator = hasSlash || hasBackslash
+  const final = pathParts(value).at(-1) ?? value
+  const extension = final.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase()
+  const hasKnownExtension = Boolean(extension && settings.fileExtensions.has(extension))
+
+  if (!hasSeparator) return hasKnownExtension ? "file" : "none"
+  if (HTTP_METHOD_CONTEXT.test(contextBefore) && hasSlash && !hasBackslash) return "slash"
+  if (hasBackslash || /^[A-Za-z]:[\\/]/.test(value)) return extension ? "file" : "folder"
+  if (startsWithExplicitPathMarker(value) || isRecognizedAbsolutePath(value)) return extension ? "file" : "folder"
+  if (/^[\\/]/.test(value)) return "slash"
+  return extension ? "file" : "slash"
+}
+
+function speakPathish(value: string, contextBefore: string, settings: SanitizerSettings) {
+  const classification = classifyPathish(value, contextBefore, settings)
+  if (classification === "none") return undefined
+  if (classification === "slash") return speakSlashPhrase(value)
+  return speakPath(value)
+}
+
+function rewritePaths(text: string, settings: SanitizerSettings) {
+  return text.replace(PATHISH_PATTERN, (match, prefix: string, value: string, _extension: string | undefined, offset: number) => {
+    const contextBefore = text.slice(0, offset + prefix.length)
+    const spoken = speakPathish(value, contextBefore, settings)
+    return spoken ? `${prefix}${spoken}` : match
+  })
+}
+
+function speakReference(value: string, settings: SanitizerSettings) {
+  return speakPathish(value, "", settings)
+}
+
+function shouldOmitInlineCode(value: string, settings: SanitizerSettings) {
   if (value.length > 80) return true
   if (/\n/.test(value)) return true
   if (/^[A-Za-z_$][\w$.-]*$/.test(value)) return false
-  if (looksLikePath(value)) return false
+  if (speakReference(value, settings)) return false
   if (/\b(?:bun|curl|docker|git|node|npm|pnpm|python|yarn)\b/.test(value) && /\s/.test(value)) return true
   return /[{}[\]<>|;&$]/.test(value) && /\s/.test(value)
 }
 
-function speakInlineCode(value: string) {
+function speakInlineCode(value: string, settings: SanitizerSettings) {
   const trimmed = value.trim()
   if (!trimmed) return ""
-  if (shouldOmitInlineCode(trimmed)) return INLINE_CODE_PLACEHOLDER
-  if (looksLikePath(trimmed)) return speakPath(trimmed)
+  if (shouldOmitInlineCode(trimmed, settings)) return INLINE_CODE_PLACEHOLDER
+  const reference = speakReference(trimmed, settings)
+  if (reference) return reference
   return humanizeName(trimmed.replace(/\$/g, ""))
 }
 
@@ -220,7 +326,7 @@ function replaceCommaSeparators(text: string) {
   })
 }
 
-function sanitizeInline(text: string) {
+function sanitizeInline(text: string, settings: SanitizerSettings) {
   return replaceCommaSeparators(
     rewritePaths(
       stripMarkdownEmphasis(text)
@@ -232,11 +338,12 @@ function sanitizeInline(text: string) {
         .replace(URL_PATTERN, " ")
         .replace(UUID_PATTERN, IDENTIFIER_PLACEHOLDER)
         .replace(LONG_HEX_PATTERN, IDENTIFIER_PLACEHOLDER)
-        .replace(/`([^`\n]+)`/g, (_match, code: string) => speakInlineCode(code))
+        .replace(/`([^`\n]+)`/g, (_match, code: string) => speakInlineCode(code, settings))
         .replace(/&/g, " and ")
         .replace(/(?:->|=>)/g, " to ")
         .replace(/[<>]/g, " ")
         .replace(/[`]/g, " "),
+      settings,
     ),
   )
 }
@@ -255,11 +362,16 @@ function stripLinePrefixes(line: string) {
 }
 
 export class SpeechSanitizer {
+  private readonly settings: SanitizerSettings
   private buffer = ""
   private inCodeBlock = false
   private inTable = false
   private pendingTableHeader: string | undefined
   private atLineStart = true
+
+  constructor(options?: SpeechSanitizerOptions) {
+    this.settings = createSanitizerSettings(options)
+  }
 
   push(text: string, final = false) {
     this.buffer += text
@@ -302,7 +414,7 @@ export class SpeechSanitizer {
         if (!final && this.buffer && !this.shouldHoldPartialLine()) {
           const partial = this.takePartialText()
           if (!partial) break
-          output.push(sanitizeInline(partial))
+          output.push(sanitizeInline(partial, this.settings))
           this.atLineStart = false
           continue
         }
@@ -417,18 +529,18 @@ export class SpeechSanitizer {
     if (isHorizontalRule(withoutPrefixes)) return ""
 
     const heading = withoutPrefixes.match(/^#{1,6}\s+(.+?)\s*#*$/)
-    if (heading) return ensureSentence(`Heading, ${sanitizeInline(heading[1])}`)
+    if (heading) return ensureSentence(`Heading, ${sanitizeInline(heading[1], this.settings)}`)
 
     if (isDenseTechnicalLine(withoutPrefixes)) return TECHNICAL_PLACEHOLDER
-    const sanitized = sanitizeInline(withoutPrefixes)
+    const sanitized = sanitizeInline(withoutPrefixes, this.settings)
     return lineBreak ? ensureSentence(sanitized) : sanitized
   }
 }
 
-export function createSpeechSanitizer() {
-  return new SpeechSanitizer()
+export function createSpeechSanitizer(options?: SpeechSanitizerOptions) {
+  return new SpeechSanitizer(options)
 }
 
-export function sanitizeSpeechText(text: string) {
-  return createSpeechSanitizer().push(text, true)
+export function sanitizeSpeechText(text: string, options?: SpeechSanitizerOptions) {
+  return createSpeechSanitizer(options).push(text, true)
 }

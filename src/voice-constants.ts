@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   maxSpeechChunkChars: 1000,
   streamFlushChars: 180,
   maxSpeechChars: 2000,
+  fileExtensions: [],
   trimSilenceThreshold: 0.001,
   leadingAudioPadMs: 12,
   normalPauseMs: 240,

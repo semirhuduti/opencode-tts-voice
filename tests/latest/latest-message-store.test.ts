@@ -77,4 +77,14 @@ describe("LatestMessageStore", () => {
     expect(latest.replayText("session-1").source).toBe("state")
     timers.dispose()
   })
+
+  it("uses configured extensions for replay text", () => {
+    const api = createApi([baseMessage], [{ id: "part-1", type: "text", text: "Open app/widget.foo", synthetic: false, ignored: false }])
+    const timers = new TimerRegistry()
+    const sessionStore = createSessionStore()
+    const latest = new LatestMessageStore(api as never, { ...DEFAULT_CONFIG, fileExtensions: ["foo"] }, timers, sessionStore as never)
+
+    expect(latest.collectLatestMessageText("session-1")).toBe("Open the widget foo file in the app folder.")
+    timers.dispose()
+  })
 })

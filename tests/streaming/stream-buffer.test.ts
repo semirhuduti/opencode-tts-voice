@@ -41,4 +41,13 @@ describe("StreamBuffer", () => {
     expect(buffer.rawText).toBe("Different text.")
     expect(buffer.completed).toBe(true)
   })
+
+  it("uses configured extensions while streaming", () => {
+    const config = { ...DEFAULT_CONFIG, fileExtensions: ["foo"], streamFlushChars: 10, maxSpeechChunkChars: 100 }
+    const buffer = new StreamBuffer("session", "message", "message")
+
+    const result = buffer.applyFinal("Open app/widget.foo", "message", config, true)
+
+    expect(result.chunks.map((chunk) => chunk.text)).toEqual(["Open the widget foo file in the app folder."])
+  })
 })

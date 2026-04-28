@@ -11,12 +11,17 @@
     "tui"
   ],
   "files": [
+    "agents",
     "dist",
     "README.md",
     "LICENSE"
   ],
   "type": "module",
   "exports": {
+    "./server": {
+      "types": "./dist/server-plugin.d.ts",
+      "import": "./dist/server-plugin.js"
+    },
     "./tui": {
       "types": "./dist/tui-plugin.d.ts",
       "import": "./dist/tui-plugin.js"

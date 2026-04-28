@@ -88,7 +88,7 @@ export class LatestMessageStore {
       .map((part) => part.text)
       .join(" ")
 
-    const prepared = prepareSpeechText(text, this.config.maxSpeechChars)
+    const prepared = prepareSpeechText(text, this.config.maxSpeechChars, this.config)
     this.log.info("assistant text collected", {
       messageID,
       partCount: parts.length,

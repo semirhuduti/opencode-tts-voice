@@ -30,8 +30,60 @@ describe("sanitizeSpeechText", () => {
 
   it("rewrites file paths for speech", () => {
     expect(sanitizeSpeechText("Update src/voice-text.ts and README.md")).toBe(
-      "Update the TypeScript file voice text in the source folder and the Markdown file read me.",
+      "Update the voice text TypeScript file in the src folder and the read me Markdown file.",
     )
+  })
+
+  it("reads ambiguous slash text literally", () => {
+    expect(sanitizeSpeechText("Use task/issue and api/backoffice-v1/dashboard")).toBe(
+      "Use task slash issue and api slash backoffice-v1 slash dashboard.",
+    )
+  })
+
+  it("reads route-looking slash text literally", () => {
+    expect(sanitizeSpeechText("Call /api/users or GET /api/users.json")).toBe(
+      "Call slash api slash users or GET slash api slash users.json.",
+    )
+  })
+
+  it("speaks concise file and folder paths", () => {
+    expect(sanitizeSpeechText("Open src/api/items/Article.ts, dist/tui-plugin.js, and ./src/api")).toBe(
+      "Open the Article TypeScript file in the items folder. the tui plugin JavaScript file in the dist folder. the api folder.",
+    )
+  })
+
+  it("preserves literal folder names and file casing", () => {
+    expect(sanitizeSpeechText("Use ./src and src/api/items/Article.ts")).toBe(
+      "Use the src folder and the Article TypeScript file in the items folder.",
+    )
+  })
+
+  it("recognizes common modern file extensions", () => {
+    expect(sanitizeSpeechText("Edit components/App.vue, icon.svg, and image.png")).toBe(
+      "Edit the App Vue file in the components folder. the icon SVG image file. the image PNG image file.",
+    )
+  })
+
+  it("uses configured file extensions", () => {
+    expect(sanitizeSpeechText("Open project/widget.foo and README.md", { fileExtensions: ["foo"] })).toBe(
+      "Open the widget foo file in the project folder and the read me Markdown file.",
+    )
+  })
+
+  it("reads unknown standalone extensions literally", () => {
+    expect(sanitizeSpeechText("Open widget.foo and assets/icon.foo")).toBe(
+      "Open widget.foo and the icon foo file in the assets folder.",
+    )
+  })
+
+  it("sanitizes slash phrases inside inline code and markdown link labels", () => {
+    expect(sanitizeSpeechText("See `task/issue` and [api/users](https://example.com)")).toBe(
+      "See task slash issue and api slash users.",
+    )
+  })
+
+  it("supports Windows style paths", () => {
+    expect(sanitizeSpeechText("Open C:\\repo\\src\\Article.ts")).toBe("Open the Article TypeScript file in the src folder.")
   })
 
   it("turns line breaks into sentence boundaries", () => {
@@ -108,7 +160,7 @@ Some final text with a [relative path reference](./README.md) and a URL: https:/
         "This is a blockquote.",
         "It spans multiple lines.",
         "Bullet item one.",
-        "Bullet item two with the TypeScript file voice text in the source folder.",
+        "Bullet item two with the voice text TypeScript file in the src folder.",
         "Nested bullet item.",
         "Nested bullet item with bold and italic.",
         "Numbered item one.",
@@ -118,7 +170,7 @@ Some final text with a [relative path reference](./README.md) and a URL: https:/
         "Pending task.",
         "Omitted table.",
         "Omitted code block.",
-        "Inline technical text: Omitted inline code. the TypeScript file voice sanitize. the JavaScript file tui plugin in the distribution folder.",
+        "Inline technical text: Omitted inline code. the voice sanitize TypeScript file. the tui plugin JavaScript file in the dist folder.",
         "Alt text for image.",
         "Heading, 4. Another Heading.",
         "Some final text with a relative path reference and a URL.",
@@ -158,11 +210,24 @@ describe("SpeechSanitizer", () => {
 
     expect(chunks.join("\n")).toBe("Omitted table.\nDone.")
   })
+
+  it("applies slash and path rules while streaming", () => {
+    const sanitizer = createSpeechSanitizer()
+    const chunks = [sanitizer.push("Use task/", false), sanitizer.push("issue and src/api/items/Article.ts", true)].filter(Boolean)
+
+    expect(chunks.join(" ")).toBe("Use task slash issue and the Article TypeScript file in the items folder.")
+  })
 })
 
 describe("voice text pipeline", () => {
   it("prepares double hash headings before Kokoro receives text", () => {
     expect(prepareSpeechText("## Something", DEFAULT_CONFIG.maxSpeechChars)).toBe("Heading, Something.")
+  })
+
+  it("prepares playback text with configured extensions", () => {
+    expect(prepareSpeechText("Open app/widget.foo", DEFAULT_CONFIG.maxSpeechChars, { fileExtensions: ["foo"] })).toBe(
+      "Open the widget foo file in the app folder.",
+    )
   })
 
   it("splits playback text after heading sanitization", () => {

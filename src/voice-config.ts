@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG } from "./voice-constants.js"
+import { normalizeFileExtensions } from "./voice-sanitize.js"
 import type {
   DevicePreference,
   KokoroDType,
@@ -134,6 +135,7 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     maxSpeechChunkChars,
     streamFlushChars,
     maxSpeechChars: readInteger(input.maxSpeechChars, DEFAULT_CONFIG.maxSpeechChars, 64),
+    fileExtensions: normalizeFileExtensions(input.fileExtensions),
     trimSilenceThreshold: readNumber(
       input.trimSilenceThreshold,
       DEFAULT_CONFIG.trimSilenceThreshold,

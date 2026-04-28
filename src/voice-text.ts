@@ -1,5 +1,5 @@
 import type { PreparedChunk, VoiceConfig } from "./voice-types.js"
-import { sanitizeSpeechText } from "./voice-sanitize.js"
+import { sanitizeSpeechText, type SpeechSanitizerOptions } from "./voice-sanitize.js"
 
 const STRONG_BOUNDARY = /[.!?\n]/
 
@@ -23,8 +23,8 @@ export function prepareSanitizedSpeechText(text: string, maxTextLength: number) 
   return clampTextLength(cleaned, maxTextLength)
 }
 
-export function prepareSpeechText(text: string, maxTextLength: number) {
-  return prepareSanitizedSpeechText(sanitizeSpeechText(text), maxTextLength)
+export function prepareSpeechText(text: string, maxTextLength: number, options?: SpeechSanitizerOptions) {
+  return prepareSanitizedSpeechText(sanitizeSpeechText(text, options), maxTextLength)
 }
 
 function classifyPause(text: string, config: VoiceConfig) {
@@ -105,7 +105,7 @@ export function drainStreamChunks(text: string, config: VoiceConfig, final = fal
 }
 
 export function splitPlaybackText(text: string, config: VoiceConfig) {
-  const prepared = prepareSpeechText(text, config.maxSpeechChars)
+  const prepared = prepareSpeechText(text, config.maxSpeechChars, config)
   if (!prepared) return [] as PreparedChunk[]
 
   const chunks: PreparedChunk[] = []

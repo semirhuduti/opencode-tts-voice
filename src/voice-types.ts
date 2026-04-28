@@ -23,6 +23,7 @@ export type VoicePluginOptions = {
   maxSpeechChunkChars?: unknown
   streamFlushChars?: unknown
   maxSpeechChars?: unknown
+  fileExtensions?: unknown
   trimSilenceThreshold?: unknown
   leadingAudioPadMs?: unknown
   normalPauseMs?: unknown
@@ -53,6 +54,7 @@ export type VoiceConfig = {
   maxSpeechChunkChars: number
   streamFlushChars: number
   maxSpeechChars: number
+  fileExtensions: string[]
   trimSilenceThreshold: number
   leadingAudioPadMs: number
   normalPauseMs: number

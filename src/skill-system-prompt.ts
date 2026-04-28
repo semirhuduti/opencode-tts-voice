@@ -1,0 +1,141 @@
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import { KV_ENABLED } from "./voice-constants.js"
+
+export const TTS_FRIENDLY_SKILL_NAME = "tts-friendly-responses"
+
+const SKILL_MARKER = `opencode-tts-voice:${TTS_FRIENDLY_SKILL_NAME}`
+const DEFAULT_TTS_ENABLED = true
+
+export type SkillSearchOptions = {
+  directory: string
+  worktree?: string
+  home?: string
+  configDir?: string
+  bundledPath?: string
+}
+
+export type TtsEnabledOptions = {
+  home?: string
+  stateFile?: string
+  env?: Pick<NodeJS.ProcessEnv, "XDG_STATE_HOME">
+}
+
+function bundledSkillPath() {
+  return path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "agents",
+    "skills",
+    TTS_FRIENDLY_SKILL_NAME,
+    "SKILL.md",
+  )
+}
+
+function configHome(home: string) {
+  return process.env.XDG_CONFIG_HOME || path.join(home, ".config")
+}
+
+export function ttsStateFile(options?: TtsEnabledOptions) {
+  if (options?.stateFile) return options.stateFile
+
+  const home = options?.home ?? os.homedir()
+  const stateHome = options?.env?.XDG_STATE_HOME || process.env.XDG_STATE_HOME || (home ? path.join(home, ".local", "state") : undefined)
+  if (!stateHome) return
+  return path.join(stateHome, "opencode", "kv.json")
+}
+
+export async function isTtsEnabled(options?: TtsEnabledOptions) {
+  const file = ttsStateFile(options)
+  if (!file) return DEFAULT_TTS_ENABLED
+
+  try {
+    const data = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    return typeof data[KV_ENABLED] === "boolean" ? data[KV_ENABLED] : DEFAULT_TTS_ENABLED
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return DEFAULT_TTS_ENABLED
+    throw error
+  }
+}
+
+function ancestors(start: string, stop?: string) {
+  const root = path.parse(start).root
+  const boundary = stop ? path.resolve(stop) : root
+  const output: string[] = []
+  let current = path.resolve(start)
+
+  while (true) {
+    output.push(current)
+    if (current === boundary || current === root) break
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+
+  return output
+}
+
+function skillFile(dir: string, base: string) {
+  return path.join(dir, base, "skills", TTS_FRIENDLY_SKILL_NAME, "SKILL.md")
+}
+
+export function ttsFriendlySkillCandidatePaths(options: SkillSearchOptions) {
+  const home = options.home ?? os.homedir()
+  const configDir = options.configDir ?? process.env.OPENCODE_CONFIG_DIR
+  const paths: string[] = []
+
+  for (const dir of ancestors(options.directory, options.worktree)) {
+    paths.push(path.join(dir, ".opencode", "skills", TTS_FRIENDLY_SKILL_NAME, "SKILL.md"))
+    paths.push(path.join(dir, ".opencode", "skill", TTS_FRIENDLY_SKILL_NAME, "SKILL.md"))
+    paths.push(skillFile(dir, ".agents"))
+    paths.push(skillFile(dir, ".claude"))
+  }
+
+  if (configDir) {
+    paths.push(path.join(configDir, "skills", TTS_FRIENDLY_SKILL_NAME, "SKILL.md"))
+    paths.push(path.join(configDir, "skill", TTS_FRIENDLY_SKILL_NAME, "SKILL.md"))
+  }
+
+  if (home) {
+    const opencodeConfig = path.join(configHome(home), "opencode")
+    paths.push(path.join(opencodeConfig, "skills", TTS_FRIENDLY_SKILL_NAME, "SKILL.md"))
+    paths.push(path.join(opencodeConfig, "skill", TTS_FRIENDLY_SKILL_NAME, "SKILL.md"))
+    paths.push(skillFile(home, ".agents"))
+    paths.push(skillFile(home, ".claude"))
+  }
+
+  paths.push(options.bundledPath ?? bundledSkillPath())
+  return Array.from(new Set(paths))
+}
+
+export function stripSkillFrontmatter(text: string) {
+  return text.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n?/, "").trim()
+}
+
+export async function readTtsFriendlySkill(options: SkillSearchOptions) {
+  for (const file of ttsFriendlySkillCandidatePaths(options)) {
+    try {
+      const content = stripSkillFrontmatter(await readFile(file, "utf8"))
+      if (content) return { file, content }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+}
+
+export function hasTtsFriendlySkillPrompt(system: readonly string[]) {
+  return system.some((item) => item.includes(SKILL_MARKER))
+}
+
+export function createTtsFriendlySkillPrompt(content: string) {
+  return [
+    `<!-- ${SKILL_MARKER} -->`,
+    "The following response style skill is active for this session. Follow it for user-facing responses unless the user explicitly asks for a different format.",
+    "",
+    stripSkillFrontmatter(content),
+  ]
+    .filter(Boolean)
+    .join("\n")
+}
