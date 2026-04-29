@@ -1,9 +1,9 @@
 /** @jsxImportSource @opentui/solid */
 
-import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
+import type { TuiDialogSelectOption, TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import type { ColorInput, KeyEvent } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
-import { createEffect, createSignal, For, onCleanup } from "solid-js"
+import { createEffect, createSignal, onCleanup } from "solid-js"
 import { VoiceCommands } from "./commands/voice-commands.js"
 import { LatestMessageStore, type AssistantHistoryEntry } from "./latest/latest-message-store.js"
 import { MessageStore } from "./messages/message-store.js"
@@ -28,7 +28,6 @@ const TOGGLE_OFF = "#808080"
 const ERROR_ICON = "#ff5c57"
 const SPINNER_INTERVAL_MS = 90
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-const PAGE_STEP = 8
 
 function stopKey(event: KeyEvent) {
   event.preventDefault()
@@ -173,88 +172,35 @@ function HistoryPickerDialog(props: {
   commands: VoiceCommands
   sessionID: string
   entries: AssistantHistoryEntry[]
-  onClose: () => void
 }) {
-  const [selected, setSelected] = createSignal(0)
-  const theme = () => props.api.theme.current
-  const maxIndex = () => Math.max(0, props.entries.length - 1)
-  const move = (delta: number) => setSelected((index) => Math.min(maxIndex(), Math.max(0, index + delta)))
-  const close = () => props.api.ui.dialog.clear()
-  const play = (mode: "single" | "continue") => {
-    const entry = props.entries[selected()]
-    if (!entry) return
-    close()
-    void props.commands.playHistory(entry.messageID, mode, props.sessionID)
+  const options: TuiDialogSelectOption<string>[] = props.entries.map((entry) => ({
+    title: `${formatHistoryTimestamp(entry.created)} ${entry.preview}`,
+    value: entry.messageID,
+  }))
+  const [selectedMessageID, setSelectedMessageID] = createSignal(options[0]?.value)
+  const play = (messageID: string | undefined, mode: "single" | "continue") => {
+    if (!messageID) return
+    props.api.ui.dialog.clear()
+    void props.commands.playHistory(messageID, mode, props.sessionID)
   }
 
   useKeyboard((event) => {
     if (event.defaultPrevented) return
+    if (event.name !== "return" || !event.shift) return
 
-    switch (event.name) {
-      case "escape":
-        stopKey(event)
-        close()
-        return
-      case "return":
-        stopKey(event)
-        play(event.shift ? "continue" : "single")
-        return
-      case "up":
-        stopKey(event)
-        move(-1)
-        return
-      case "down":
-        stopKey(event)
-        move(1)
-        return
-      case "pageup":
-        stopKey(event)
-        move(-PAGE_STEP)
-        return
-      case "pagedown":
-        stopKey(event)
-        move(PAGE_STEP)
-        return
-      case "home":
-        stopKey(event)
-        setSelected(0)
-        return
-      case "end":
-        stopKey(event)
-        setSelected(maxIndex())
-        return
-    }
+    stopKey(event)
+    play(selectedMessageID(), "continue")
   })
 
   return (
-    <props.api.ui.Dialog onClose={props.onClose} size="large">
-      <box
-        border
-        borderColor={theme().borderActive}
-        title="Assistant History"
-        bottomTitle="Enter play  shift+return continue  Esc close"
-        width="100%"
-        flexDirection="column"
-        paddingX={1}
-      >
-        <For each={props.entries}>
-          {(entry, index) => {
-            const selectedRow = () => index() === selected()
-            return (
-              <text
-                height={1}
-                truncate
-                wrapMode="none"
-                fg={selectedRow() ? theme().selectedListItemText : theme().text}
-                bg={selectedRow() ? theme().backgroundElement : undefined}
-              >
-                {selectedRow() ? "> " : "  "}{formatHistoryTimestamp(entry.created)} {entry.preview}
-              </text>
-            )
-          }}
-        </For>
-      </box>
-    </props.api.ui.Dialog>
+    <props.api.ui.DialogSelect
+      title="Assistant History"
+      options={options}
+      skipFilter
+      current={selectedMessageID()}
+      onMove={(option) => setSelectedMessageID(option.value)}
+      onSelect={(option) => play(option.value, "single")}
+    />
   )
 }
 
@@ -295,6 +241,7 @@ const tui: TuiPlugin = async (api, options) => {
     const entries = await commands.historyEntries(sessionID)
     if (entries.length === 0) return
 
+    api.ui.dialog.setSize("large")
     api.ui.dialog.replace(
       () => (
         <HistoryPickerDialog
@@ -302,7 +249,6 @@ const tui: TuiPlugin = async (api, options) => {
           commands={commands}
           sessionID={sessionID}
           entries={entries}
-          onClose={() => api.ui.dialog.clear()}
         />
       ),
       () => log.info("history picker closed", { sessionID }),
