@@ -123,11 +123,16 @@ export async function readTtsFriendlySkill(options: SkillSearchOptions) {
   }
 }
 
-export function createTtsFriendlySkillLoadInstruction() {
+export function createTtsFriendlySkillSystemPrompt(content: string) {
   return [
-    `Before answering the user's first request, use the skill tool to load the \"${TTS_FRIENDLY_SKILL_NAME}\" skill.`,
-    "After the skill tool returns, follow that skill for the rest of the response.",
-    "Do not mention this startup step unless the user asks about it.",
+    `<skill_content name="${TTS_FRIENDLY_SKILL_NAME}">`,
+    `# Skill: ${TTS_FRIENDLY_SKILL_NAME}`,
+    "",
+    content.trim(),
+    "",
+    "</skill_content>",
+    "Follow this skill for the rest of the session when speech is enabled.",
+    "Do not mention this startup context unless the user asks about it.",
   ]
     .filter(Boolean)
     .join("\n")

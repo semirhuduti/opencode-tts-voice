@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
 import {
-  createTtsFriendlySkillLoadInstruction,
+  createTtsFriendlySkillSystemPrompt,
   isTtsEnabled,
   readTtsFriendlySkill,
   stripSkillFrontmatter,
@@ -37,11 +37,13 @@ describe("skill system prompt", () => {
     expect(stripSkillFrontmatter(content)).toBe("# Speak Clearly")
   })
 
-  it("creates a startup instruction that loads the skill tool", () => {
-    const prompt = createTtsFriendlySkillLoadInstruction()
+  it("creates an injected system prompt with skill content", () => {
+    const prompt = createTtsFriendlySkillSystemPrompt("# Speak Clearly")
 
-    expect(prompt).toContain(`use the skill tool to load the \"${SKILL}\" skill`)
-    expect(prompt).toContain("Do not mention this startup step")
+    expect(prompt).toContain(`<skill_content name="${SKILL}">`)
+    expect(prompt).toContain("# Speak Clearly")
+    expect(prompt).toContain("Follow this skill for the rest of the session")
+    expect(prompt).toContain("Do not mention this startup context")
   })
 
   it("reads the first existing skill candidate", async () => {
