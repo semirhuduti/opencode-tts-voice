@@ -166,7 +166,7 @@ describe("QuestionController", () => {
     expect(harness.enqueued.map((item) => item.text).join("\n")).toBe("Should question prompts be spoken?")
   })
 
-  it("enqueues multi-question requests in order", async () => {
+  it("speaks only the first question from multi-question requests", async () => {
     const harness = createHarness()
 
     await harness.ask(
@@ -178,8 +178,9 @@ describe("QuestionController", () => {
       }),
     )
 
-    expect(harness.enqueued.map((item) => item.text)).toEqual(["First question?", "Second question?"])
-    expect(harness.enqueued.map((item) => item.trace?.questionIndex)).toEqual([0, 1])
+    expect(harness.enqueued.map((item) => item.text)).toEqual(["First question?"])
+    expect(harness.enqueued.map((item) => item.trace?.questionIndex)).toEqual([0])
+    expect(harness.enqueued[0]?.trace?.questionCount).toBe(2)
   })
 
   it("unsubscribes when disposed", async () => {

@@ -43,6 +43,9 @@ describe("skill system prompt", () => {
     expect(prompt).toContain(`<skill_content name="${SKILL}">`)
     expect(prompt).toContain("# Speak Clearly")
     expect(prompt).toContain("Follow this skill for the rest of the session")
+    expect(prompt).toContain("ask exactly one question per tool call")
+    expect(prompt).toContain("wait for the user's answer before asking the next question")
+    expect(prompt).toContain("Do not batch multiple questions into a single question tool call")
     expect(prompt).toContain("Do not mention this startup context")
   })
 

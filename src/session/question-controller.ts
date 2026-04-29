@@ -63,14 +63,17 @@ export class QuestionController {
       .filter((question) => Boolean(question.text))
     if (questionTexts.length === 0) return
 
-    const fullText = questionTexts.map((question) => question.text).join("\n\n")
-    const chunks = questionTexts.flatMap((question) =>
-      splitPlaybackText(question.text, this.config).map((chunk) => ({ ...chunk, questionIndex: question.index })),
-    )
+    const currentQuestion = questionTexts[0]
+    const fullText = currentQuestion.text
+    const chunks = splitPlaybackText(currentQuestion.text, this.config).map((chunk) => ({
+      ...chunk,
+      questionIndex: currentQuestion.index,
+    }))
     this.log.info("question asked", {
       sessionID: request.sessionID,
       requestID: request.id,
       questionCount: questionTexts.length,
+      spokenQuestionIndex: currentQuestion.index,
       chunkCount: chunks.length,
       fullTextLength: fullText.length,
     })

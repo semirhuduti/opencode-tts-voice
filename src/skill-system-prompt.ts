@@ -6,6 +6,12 @@ import { KV_ENABLED } from "./voice-constants.js"
 
 export const TTS_FRIENDLY_SKILL_NAME = "tts-friendly-responses"
 const DEFAULT_TTS_ENABLED = true
+const QUESTION_SEQUENCING_INSTRUCTIONS = [
+  "For spoken clarity, ask questions one at a time.",
+  "When using the question tool, ask exactly one question per tool call.",
+  "If more information is still needed, wait for the user's answer before asking the next question in a new question tool call.",
+  "Do not batch multiple questions into a single question tool call.",
+].join("\n")
 
 export type SkillSearchOptions = {
   directory: string
@@ -132,6 +138,7 @@ export function createTtsFriendlySkillSystemPrompt(content: string) {
     "",
     "</skill_content>",
     "Follow this skill for the rest of the session when speech is enabled.",
+    QUESTION_SEQUENCING_INSTRUCTIONS,
     "Do not mention this startup context unless the user asks about it.",
   ]
     .filter(Boolean)
