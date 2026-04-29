@@ -1,17 +1,18 @@
 /** @jsxImportSource @opentui/solid */
 
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import type { ColorInput } from "@opentui/core"
+import type { ColorInput, KeyEvent } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
-import { createEffect, createSignal, onCleanup } from "solid-js"
+import { createEffect, createSignal, For, onCleanup } from "solid-js"
 import { VoiceCommands } from "./commands/voice-commands.js"
-import { LatestMessageStore } from "./latest/latest-message-store.js"
+import { LatestMessageStore, type AssistantHistoryEntry } from "./latest/latest-message-store.js"
 import { MessageStore } from "./messages/message-store.js"
 import { PlaybackPipeline } from "./playback/playback-pipeline.js"
 import { SessionStore } from "./session/session-store.js"
 import { IdleController } from "./session/idle-controller.js"
 import { QuestionController } from "./session/question-controller.js"
 import { TimerRegistry } from "./shared/timer-registry.js"
+import { activeSessionID } from "./shared/voice-utils.js"
 import { VoiceStateStore } from "./state/voice-state-store.js"
 import { StreamingController } from "./streaming/streaming-controller.js"
 import { PLUGIN_ID } from "./voice-constants.js"
@@ -27,6 +28,18 @@ const TOGGLE_OFF = "#808080"
 const ERROR_ICON = "#ff5c57"
 const SPINNER_INTERVAL_MS = 90
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+const PAGE_STEP = 8
+
+function stopKey(event: KeyEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function formatHistoryTimestamp(created: number) {
+  const date = new Date(created)
+  if (Number.isNaN(date.getTime())) return "--:--"
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
 
 function ShortcutChip(props: {
   keyLabel: string
@@ -65,6 +78,14 @@ function ShortcutManager(props: {
       return
     }
 
+    if (props.keybinds.match("history", event)) {
+      log.info("keyboard history", { key: props.keybinds.print("history") })
+      event.preventDefault()
+      event.stopPropagation()
+      props.api.command.trigger("tts.history")
+      return
+    }
+
     if (props.keybinds.match("skipLatest", event)) {
       log.info("keyboard latest", { key: props.keybinds.print("skipLatest") })
       event.preventDefault()
@@ -79,12 +100,28 @@ function ShortcutManager(props: {
 function ShortcutHint(props: {
   api: TuiPluginApi
   stateStore: VoiceStateStore
+  latestStore: LatestMessageStore
   keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
 }) {
   const [state, setState] = createSignal(props.stateStore.snapshot())
+  const [hasHistory, setHasHistory] = createSignal(false)
   const [spinnerFrame, setSpinnerFrame] = createSignal(0)
   const unsubscribe = props.stateStore.subscribe(() => setState(props.stateStore.snapshot()))
+  const unsubscribeHistory = props.latestStore.onHistoryChanged((sessionID) => {
+    if (sessionID !== activeSessionID(props.api.route.current)) return
+    void props.latestStore.collectDisplayHistory(sessionID, 1).then((entries) => setHasHistory(entries.length > 0))
+  })
   onCleanup(unsubscribe)
+  onCleanup(unsubscribeHistory)
+
+  createEffect(() => {
+    const sessionID = activeSessionID(props.api.route.current)
+    if (!sessionID) {
+      setHasHistory(false)
+      return
+    }
+    void props.latestStore.collectDisplayHistory(sessionID, 1).then((entries) => setHasHistory(entries.length > 0))
+  })
 
   createEffect(() => {
     if (!state().generating) {
@@ -101,6 +138,7 @@ function ShortcutHint(props: {
   const theme = () => props.api.theme.current
   const playChip = () => <ShortcutChip keyLabel={props.keybinds.print("pause")} label="play" icon="▶" />
   const pauseChip = () => <ShortcutChip keyLabel={props.keybinds.print("pause")} label="pause" icon="Ⅱ" />
+  const historyChip = () => <ShortcutChip keyLabel={props.keybinds.print("history")} label="history" icon="◷" />
   const replayChip = () => <ShortcutChip keyLabel={props.keybinds.print("skipLatest")} label="replay" icon="↻" />
   const errorChip = () => <span>[<span style={{ fg: ERROR_ICON }}>!</span> error]</span>
   const toggleChip = () => {
@@ -116,17 +154,108 @@ function ShortcutHint(props: {
   }
   const content = () => {
     const current = state()
+    const maybeHistory = () => hasHistory() ? <>{ACTION_GAP}{historyChip()}</> : null
     if (current.error) return <>{errorChip()}{ACTION_GAP}{toggleChip()}</>
-    if (!current.enabled) return <>{toggleChip()}</>
-    if (current.paused) return <>{playChip()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
+    if (!current.enabled) return <>{toggleChip()}{maybeHistory()}</>
+    if (current.paused) return <>{playChip()}{maybeHistory()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
     if (current.busy) {
-      return <>{current.generating && <span style={{ fg: ACTION_ICON }}>{SPINNER_FRAMES[spinnerFrame()]}</span>}{current.generating && ACTION_GAP}{pauseChip()}{ACTION_GAP}{toggleChip()}</>
+      return <>{current.generating && <span style={{ fg: ACTION_ICON }}>{SPINNER_FRAMES[spinnerFrame()]}</span>}{current.generating && ACTION_GAP}{pauseChip()}{maybeHistory()}{ACTION_GAP}{toggleChip()}</>
     }
 
-    return <>{playChip()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
+    return <>{playChip()}{maybeHistory()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
   }
 
   return <text fg={theme().textMuted}>{content()}</text>
+}
+
+function HistoryPickerDialog(props: {
+  api: TuiPluginApi
+  commands: VoiceCommands
+  sessionID: string
+  entries: AssistantHistoryEntry[]
+  onClose: () => void
+}) {
+  const [selected, setSelected] = createSignal(0)
+  const theme = () => props.api.theme.current
+  const maxIndex = () => Math.max(0, props.entries.length - 1)
+  const move = (delta: number) => setSelected((index) => Math.min(maxIndex(), Math.max(0, index + delta)))
+  const close = () => props.api.ui.dialog.clear()
+  const play = (mode: "single" | "continue") => {
+    const entry = props.entries[selected()]
+    if (!entry) return
+    close()
+    void props.commands.playHistory(entry.messageID, mode, props.sessionID)
+  }
+
+  useKeyboard((event) => {
+    if (event.defaultPrevented) return
+
+    switch (event.name) {
+      case "escape":
+        stopKey(event)
+        close()
+        return
+      case "return":
+        stopKey(event)
+        play(event.shift ? "continue" : "single")
+        return
+      case "up":
+        stopKey(event)
+        move(-1)
+        return
+      case "down":
+        stopKey(event)
+        move(1)
+        return
+      case "pageup":
+        stopKey(event)
+        move(-PAGE_STEP)
+        return
+      case "pagedown":
+        stopKey(event)
+        move(PAGE_STEP)
+        return
+      case "home":
+        stopKey(event)
+        setSelected(0)
+        return
+      case "end":
+        stopKey(event)
+        setSelected(maxIndex())
+        return
+    }
+  })
+
+  return (
+    <props.api.ui.Dialog onClose={props.onClose} size="large">
+      <box
+        border
+        borderColor={theme().borderActive}
+        title="Assistant History"
+        bottomTitle="Enter play  shift+return continue  Esc close"
+        width="100%"
+        flexDirection="column"
+        paddingX={1}
+      >
+        <For each={props.entries}>
+          {(entry, index) => {
+            const selectedRow = () => index() === selected()
+            return (
+              <text
+                height={1}
+                truncate
+                wrapMode="none"
+                fg={selectedRow() ? theme().selectedListItemText : theme().text}
+                bg={selectedRow() ? theme().backgroundElement : undefined}
+              >
+                {selectedRow() ? "> " : "  "}{formatHistoryTimestamp(entry.created)} {entry.preview}
+              </text>
+            )
+          }}
+        </For>
+      </box>
+    </props.api.ui.Dialog>
+  )
 }
 
 const tui: TuiPlugin = async (api, options) => {
@@ -151,12 +280,34 @@ const tui: TuiPlugin = async (api, options) => {
   playback.start()
   const shortcutKeys = api.keybind.create(
     {
+      history: config.shortcuts.history,
       pause: config.shortcuts.pause,
       skipLatest: config.shortcuts.skipLatest,
       toggle: config.shortcuts.toggle,
     },
     config.shortcuts,
   )
+
+  const openHistoryPicker = async () => {
+    const sessionID = activeSessionID(api.route.current)
+    if (!sessionID) return
+
+    const entries = await commands.historyEntries(sessionID)
+    if (entries.length === 0) return
+
+    api.ui.dialog.replace(
+      () => (
+        <HistoryPickerDialog
+          api={api}
+          commands={commands}
+          sessionID={sessionID}
+          entries={entries}
+          onClose={() => api.ui.dialog.clear()}
+        />
+      ),
+      () => log.info("history picker closed", { sessionID }),
+    )
+  }
 
   api.command.register(() => [
     {
@@ -180,6 +331,16 @@ const tui: TuiPlugin = async (api, options) => {
       },
     },
     {
+      title: "Replay previous assistant message",
+      value: "tts.history",
+      category: "Voice",
+      keybind: shortcutKeys.get("history"),
+      onSelect: () => {
+        log.info("command selected", { command: "tts.history" })
+        void openHistoryPicker()
+      },
+    },
+    {
       title: "Replay latest assistant message",
       value: "tts.latest",
       category: "Voice",
@@ -197,10 +358,10 @@ const tui: TuiPlugin = async (api, options) => {
         return <ShortcutManager api={api} keybinds={shortcutKeys} />
       },
       home_prompt_right() {
-        return <ShortcutHint api={api} stateStore={stateStore} keybinds={shortcutKeys} />
+        return <ShortcutHint api={api} stateStore={stateStore} latestStore={latestStore} keybinds={shortcutKeys} />
       },
       session_prompt_right() {
-        return <ShortcutHint api={api} stateStore={stateStore} keybinds={shortcutKeys} />
+        return <ShortcutHint api={api} stateStore={stateStore} latestStore={latestStore} keybinds={shortcutKeys} />
       },
     },
   })

@@ -86,4 +86,15 @@ describe("resolveVoiceConfig", () => {
 
     expect(config.speakQuestions).toBe(true)
   })
+
+  it("defaults and overrides the history shortcut", () => {
+    expect(resolveVoiceConfig(undefined).shortcuts.history).toBe("f5")
+
+    const config = resolveVoiceConfig({ shortcuts: { history: "ctrl+h" } })
+
+    expect(config.shortcuts.history).toBe("ctrl+h")
+    expect(config.shortcuts.pause).toBe(DEFAULT_CONFIG.shortcuts.pause)
+    expect(config.shortcuts.skipLatest).toBe(DEFAULT_CONFIG.shortcuts.skipLatest)
+    expect(config.shortcuts.toggle).toBe(DEFAULT_CONFIG.shortcuts.toggle)
+  })
 })

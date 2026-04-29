@@ -33,6 +33,7 @@ export type VoicePluginOptions = {
 }
 
 export type ShortcutConfig = {
+  history: string
   pause: string
   skipLatest: string
   toggle: string
@@ -75,7 +76,7 @@ export type VoiceState = {
   error?: string
 }
 
-export type SpeechSource = "stream" | "latest" | "idle" | "question"
+export type SpeechSource = "stream" | "latest" | "history" | "idle" | "question"
 
 export type PreparedChunk = {
   text: string

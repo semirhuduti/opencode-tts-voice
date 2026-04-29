@@ -8,6 +8,7 @@ import type { VoiceStateStore } from "../state/voice-state-store.js"
 import { activeSessionID, textFingerprint, textPreview } from "../shared/voice-utils.js"
 
 type Toast = (input: { variant: "info" | "success" | "warning" | "error"; message: string }) => void
+type HistoryPlaybackMode = "single" | "continue"
 
 export class VoiceCommands {
   private readonly log = createLogger("commands")
@@ -120,6 +121,71 @@ export class VoiceCommands {
     })
     this.toast({ variant: "info", message: "Replaying latest assistant message" })
     return true
+  }
+
+  async historyEntries(sessionID?: string) {
+    const active = sessionID ?? this.activeSessionID()
+    if (!active) return []
+
+    return this.latestStore.collectDisplayHistory(active)
+  }
+
+  async hasHistory(sessionID?: string) {
+    const active = sessionID ?? this.activeSessionID()
+    if (!active) return false
+
+    return this.latestStore.hasPlayableHistory(active)
+  }
+
+  async playHistory(messageID: string, mode: HistoryPlaybackMode, sessionID?: string) {
+    const active = sessionID ?? this.activeSessionID()
+    this.log.info("history playback requested", { sessionID: active, messageID, mode })
+    if (!active) return false
+
+    const continuation = await this.latestStore.collectContinuationHistory(active, messageID)
+    const selectedEntries = mode === "continue" ? continuation : continuation.slice(0, 1)
+    if (selectedEntries.length === 0) {
+      this.log.warn("history playback unavailable", { sessionID: active, messageID, mode })
+      return false
+    }
+
+    if (!this.state.snapshot().enabled) {
+      this.state.setEnabled(true)
+      this.state.patch({ error: undefined })
+      this.state.notifyNow()
+    }
+
+    await this.playback.reset(false)
+    this.state.patch({ paused: false })
+
+    selectedEntries.forEach((entry, messageIndex) => {
+      const chunks = splitPlaybackText(entry.text, this.config)
+      chunks.forEach((chunk, chunkIndex) => {
+        this.playback.enqueuePreparedChunk(chunk.text, chunk.pauseMs, "history", {
+          origin: "historyPlayback",
+          sessionID: active,
+          messageID: entry.messageID,
+          replayMode: mode,
+          fullTextLength: entry.text.length,
+          messageIndex: entry.chronologicalIndex,
+          messageCount: selectedEntries.length,
+          chunkIndex,
+          chunkCount: chunks.length,
+        })
+      })
+      this.log.info("history message queued", {
+        sessionID: active,
+        messageID: entry.messageID,
+        mode,
+        messageIndex,
+        chronologicalIndex: entry.chronologicalIndex,
+        textLength: entry.text.length,
+        fingerprint: textFingerprint(entry.text),
+        preview: textPreview(entry.text),
+      })
+    })
+
+    return this.playback.isBusy()
   }
 
   private activeSessionID() {

@@ -10,25 +10,38 @@ const baseMessage = {
   time: {},
 }
 
-function createApi(messages: unknown[], parts: unknown[]) {
+function completedMessage(id: string, created: number, overrides: Record<string, unknown> = {}) {
+  return {
+    ...baseMessage,
+    id,
+    time: { created, completed: created + 1 },
+    ...overrides,
+  }
+}
+
+function textPart(text: string, overrides: Record<string, unknown> = {}) {
+  return { id: `part-${text}`, type: "text", text, synthetic: false, ignored: false, ...overrides }
+}
+
+function createApi(messages: unknown[], parts: unknown[] | Record<string, unknown[]>) {
   return {
     state: {
       session: {
         messages: () => messages,
       },
-      part: () => parts,
+      part: (messageID: string) => Array.isArray(parts) ? parts : parts[messageID] ?? [],
     },
   }
 }
 
-function createSessionStore() {
+function createSessionStore(shouldSpeakSession = true) {
   const callbacks = new Set<(sessionID: string) => void>()
   return {
     onDeleted(callback: (sessionID: string) => void) {
       callbacks.add(callback)
       return () => callbacks.delete(callback)
     },
-    shouldSpeakSession: async () => true,
+    shouldSpeakSession: async () => shouldSpeakSession,
     delete(sessionID: string) {
       for (const callback of callbacks) callback(sessionID)
     },
@@ -85,6 +98,62 @@ describe("LatestMessageStore", () => {
     const latest = new LatestMessageStore(api as never, { ...DEFAULT_CONFIG, fileExtensions: ["foo"] }, timers, sessionStore as never)
 
     expect(latest.collectLatestMessageText("session-1")).toBe("Open the widget foo file in the app folder.")
+    timers.dispose()
+  })
+
+  it("collects playable completed assistant history newest first and capped", async () => {
+    const messages = [
+      completedMessage("user", 1, { role: "user" }),
+      completedMessage("summary", 2, { summary: true }),
+      { ...completedMessage("incomplete", 3), time: { created: 3 } },
+      completedMessage("empty", 4),
+      ...Array.from({ length: 52 }, (_, index) => completedMessage(`message-${index}`, 10 + index)),
+    ]
+    const parts = Object.fromEntries(
+      Array.from({ length: 52 }, (_, index) => [`message-${index}`, [textPart(`Message ${index}.`)]]),
+    )
+    const api = createApi(messages, { ...parts, empty: [textPart("", { ignored: true })] })
+    const timers = new TimerRegistry()
+    const sessionStore = createSessionStore()
+    const latest = new LatestMessageStore(api as never, DEFAULT_CONFIG, timers, sessionStore as never)
+
+    const history = await latest.collectDisplayHistory("session-1")
+
+    expect(history).toHaveLength(50)
+    expect(history[0]?.messageID).toBe("message-51")
+    expect(history.at(-1)?.messageID).toBe("message-2")
+    expect(history.some((entry) => ["user", "summary", "incomplete", "empty"].includes(entry.messageID))).toBe(false)
+    timers.dispose()
+  })
+
+  it("returns chronological continuation history from the selected message", async () => {
+    const api = createApi(
+      [completedMessage("first", 1), completedMessage("second", 2), completedMessage("third", 3)],
+      {
+        first: [textPart("First.")],
+        second: [textPart("Second.")],
+        third: [textPart("Third.")],
+      },
+    )
+    const timers = new TimerRegistry()
+    const sessionStore = createSessionStore()
+    const latest = new LatestMessageStore(api as never, DEFAULT_CONFIG, timers, sessionStore as never)
+
+    const continuation = await latest.collectContinuationHistory("session-1", "second")
+
+    expect(continuation.map((entry) => entry.messageID)).toEqual(["second", "third"])
+    timers.dispose()
+  })
+
+  it("does not expose history when session speech is blocked", async () => {
+    const api = createApi([completedMessage("message-1", 1)], { "message-1": [textPart("Blocked.")] })
+    const timers = new TimerRegistry()
+    const sessionStore = createSessionStore(false)
+    const latest = new LatestMessageStore(api as never, DEFAULT_CONFIG, timers, sessionStore as never)
+
+    expect(await latest.collectDisplayHistory("session-1")).toEqual([])
+    expect(await latest.collectContinuationHistory("session-1", "message-1")).toEqual([])
+    expect(await latest.hasPlayableHistory("session-1")).toBe(false)
     timers.dispose()
   })
 })

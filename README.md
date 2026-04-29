@@ -15,7 +15,7 @@ Still wip, make sure to install sharp versions if you want a bit more reliabilit
 
 - reads assistant responses aloud while they stream in the TUI
 - speaks question tool prompts from the active visible session
-- adds TUI shortcuts for pause, replay latest response, and toggle on or off
+- adds TUI shortcuts for pause, history replay, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
 - uses local playback via `mpv`, `ffplay`, `paplay`, or `aplay`
 - prefers GPU-capable execution when available and falls back to CPU automatically
@@ -78,6 +78,7 @@ Example `~/.config/opencode/tui.json`:
         "dtype": "q4",
         "speechBlocks": ["message", "idle"],
         "shortcuts": {
+          "history": "f5",
           "pause": "f6",
           "skipLatest": "f7",
           "toggle": "f8"
@@ -118,6 +119,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `normalPauseMs` | number | `240` | Pause added after normal chunks. |
 | `sentencePauseMs` | number | `420` | Pause added after sentence, clause, or newline-ending chunks. |
+| `shortcuts.history` | string | `f5` | TUI shortcut for opening the previous assistant message picker. Enter plays the selected message, and shift return plays from the selected message forward. |
 | `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
 | `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
@@ -130,20 +132,24 @@ Runtime logging defaults to warnings and errors only to avoid terminal redraw pr
 
 Default TUI shortcuts:
 
+- `f5`: open previous assistant message picker
 - `f6`: play or pause speech
 - `f7`: replay the latest assistant message
 - `f8`: enable or disable speech
 
 When the TUI entrypoint is active, the plugin also renders compact shortcut chips near the chat prompt. Each chip uses `[hotkey hint icon]` order and only shows controls that are useful for the current state:
 
-- `[f8 off ○]` when speech is disabled
-- `[f6 play ▶] [f7 replay ↻] [f8 on ●]` when speech is enabled and idle
-- `⠋ [f6 pause Ⅱ] [f8 on ●]` while audio is generating, with the spinner animated and no `generating` text
-- `[f6 pause Ⅱ] [f8 on ●]` while audio is playing
-- `[f6 play ▶] [f7 replay ↻] [f8 on ●]` while paused
+- `[f8 off ○]` when speech is disabled and no playable history exists
+- `[f8 off ○] [f5 history ◷]` when speech is disabled and playable history exists
+- `[f6 play ▶] [f5 history ◷] [f7 replay ↻] [f8 on ●]` when speech is enabled, idle, and playable history exists
+- `⠋ [f6 pause Ⅱ] [f5 history ◷] [f8 on ●]` while audio is generating and playable history exists, with the spinner animated and no `generating` text
+- `[f6 pause Ⅱ] [f5 history ◷] [f8 on ●]` while audio is playing and playable history exists
+- `[f6 play ▶] [f5 history ◷] [f7 replay ↻] [f8 on ●]` while paused and playable history exists
 - `[! error] [f8 on ●]` or `[! error] [f8 off ○]` after a playback error
 - shortcut keys are orange
 - action icons are blue, except the toggle icon which is green for `on` and gray for `off`
+
+The history picker lists up to 50 recent playable assistant messages from the active session. Press `Enter` to play only the selected message, `shift+return` to play the selected message and later playable assistant messages, or `Escape` to close the picker.
 
 `speechBlocks` works as a source filter on top of the speech toggles:
 

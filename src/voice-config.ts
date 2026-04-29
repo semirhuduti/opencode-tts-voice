@@ -104,6 +104,7 @@ function readVoiceBlocks(value: unknown): VoiceBlock[] {
 function readShortcuts(value: unknown): ShortcutConfig {
   if (!isRecord(value)) return { ...DEFAULT_CONFIG.shortcuts }
   return {
+    history: readString(value.history, DEFAULT_CONFIG.shortcuts.history),
     pause: readString(value.pause, DEFAULT_CONFIG.shortcuts.pause),
     skipLatest: readString(value.skipLatest, DEFAULT_CONFIG.shortcuts.skipLatest),
     toggle: readString(value.toggle, DEFAULT_CONFIG.shortcuts.toggle),

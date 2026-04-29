@@ -28,6 +28,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   normalPauseMs: 240,
   sentencePauseMs: 420,
   shortcuts: {
+    history: "f5",
     pause: "f6",
     skipLatest: "f7",
     toggle: "f8",

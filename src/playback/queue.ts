@@ -19,10 +19,13 @@ export type QueueTrace = {
   chunkCount?: number
   questionIndex?: number
   questionCount?: number
+  messageIndex?: number
+  messageCount?: number
   restLength?: number
   finalFlush?: boolean
   cursorReset?: boolean
   replaySource?: "cache" | "state"
+  replayMode?: "single" | "continue"
 }
 
 export type QueueItem = {
