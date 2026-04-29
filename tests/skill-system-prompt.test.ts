@@ -3,8 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
 import {
-  createTtsFriendlySkillToolOutput,
-  hasLoadedTtsFriendlySkill,
+  createTtsFriendlySkillLoadInstruction,
   isTtsEnabled,
   readTtsFriendlySkill,
   stripSkillFrontmatter,
@@ -32,40 +31,17 @@ describe("skill system prompt", () => {
     expect(paths.at(-1)).toBe("/package/skill/SKILL.md")
   })
 
-  it("strips frontmatter before building the skill tool output", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "opencode-tts-skill-output-"))
-    const file = path.join(dir, "SKILL.md")
+  it("strips frontmatter from skill markdown", () => {
     const content = ["---", `name: ${SKILL}`, "description: Test skill", "---", "# Speak Clearly"].join("\n")
-    await writeFile(file, content)
 
     expect(stripSkillFrontmatter(content)).toBe("# Speak Clearly")
-    const output = await createTtsFriendlySkillToolOutput({ file, content })
-    expect(output).toContain("# Speak Clearly")
-    expect(output).not.toContain("description: Test skill")
-    expect(output).toContain(`<skill_content name="${SKILL}">`)
   })
 
-  it("detects when the skill has already been loaded into message history", () => {
-    const output = `<skill_content name="${SKILL}">\n# Skill: ${SKILL}\n</skill_content>`
+  it("creates a startup instruction that loads the skill tool", () => {
+    const prompt = createTtsFriendlySkillLoadInstruction()
 
-    expect(
-      hasLoadedTtsFriendlySkill([
-        {
-          parts: [
-            {
-              type: "tool",
-              tool: "skill",
-              state: {
-                status: "completed",
-                input: { name: SKILL },
-                output,
-              },
-            },
-          ],
-        },
-      ]),
-    ).toBe(true)
-    expect(hasLoadedTtsFriendlySkill([{ parts: [] }])).toBe(false)
+    expect(prompt).toContain(`use the skill tool to load the \"${SKILL}\" skill`)
+    expect(prompt).toContain("Do not mention this startup step")
   })
 
   it("reads the first existing skill candidate", async () => {
