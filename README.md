@@ -14,6 +14,7 @@ Still wip, make sure to install sharp versions if you want a bit more reliabilit
 ## Features
 
 - reads assistant responses aloud while they stream in the TUI
+- speaks question tool prompts from the active visible session
 - adds TUI shortcuts for pause, replay latest response, and toggle on or off
 - supports configurable voice, speed, model, precision, and playback settings
 - uses local playback via `mpv`, `ffplay`, `paplay`, or `aplay`
@@ -106,6 +107,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `speakResponses` | boolean | `true` | Speak streamed assistant responses. |
 | `speakSubagentResponses` | boolean | `false` | Speak responses from subagent child sessions. Disabled by default so only the main agent is spoken. |
 | `speakOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
+| `speakQuestions` | boolean | `true` | Speak question tool prompts when they are asked in the active session. |
 | `idleAnnouncement` | string | `Task completed.` | Idle announcement text. |
 | `speechBlocks` | string[] | `["message", "idle"]` | Fine-grained speech source filter. Accepted values: `reason`, `message`, `idle`. Reasoning is opt-in. |
 | `maxSpeechChunkChars` | number | `1000` | Maximum chunk size sent to the TTS generator. |
@@ -148,7 +150,10 @@ When the TUI entrypoint is active, the plugin also renders compact shortcut chip
 - `speakResponses` enables or disables streamed response playback
 - `speakSubagentResponses` enables or disables speech from subagent child sessions
 - `speakOnIdle` enables or disables idle announcements
+- `speakQuestions` enables or disables question tool prompt playback for the active session only
 - `speechBlocks` decides which of `reason`, `message`, and `idle` are allowed to be spoken when those features are active
+
+Question prompt speech reads only the question text. It does not read answer options, descriptions, multi-select hints, or custom-answer instructions. Questions are governed by the global speech toggle and pause state, never spoken for subagent sessions, and queued behind any current playback.
 
 Removed alpha option names are not accepted as aliases. Replace `playerBin` with `audioPlayer`, `playerArgs` with `audioPlayerArgs`, `readResponses` with `speakResponses`, `readSubagentResponses` with `speakSubagentResponses`, `announceOnIdle` with `speakOnIdle`, `idleMessage` with `idleAnnouncement`, `voiceBlocks` with `speechBlocks`, `speechChunkLength` with `maxSpeechChunkChars`, `streamSoftLimit` with `streamFlushChars`, `maxTextLength` with `maxSpeechChars`, `defaultChunkPauseMs` with `normalPauseMs`, and `clauseChunkPauseMs` with `sentencePauseMs`.
 

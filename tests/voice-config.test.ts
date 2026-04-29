@@ -10,6 +10,7 @@ describe("resolveVoiceConfig", () => {
       speakResponses: false,
       speakSubagentResponses: true,
       speakOnIdle: true,
+      speakQuestions: false,
       idleAnnouncement: "All done.",
       speechBlocks: ["reason", "message"],
       maxSpeechChunkChars: 500,
@@ -25,6 +26,7 @@ describe("resolveVoiceConfig", () => {
     expect(config.speakResponses).toBe(false)
     expect(config.speakSubagentResponses).toBe(true)
     expect(config.speakOnIdle).toBe(true)
+    expect(config.speakQuestions).toBe(false)
     expect(config.idleAnnouncement).toBe("All done.")
     expect(config.speechBlocks).toEqual(["reason", "message"])
     expect(config.maxSpeechChunkChars).toBe(500)
@@ -54,6 +56,7 @@ describe("resolveVoiceConfig", () => {
       readResponses: false,
       readSubagentResponses: true,
       announceOnIdle: true,
+      readQuestions: false,
       idleMessage: "Done.",
       voiceBlocks: ["reason"],
       speechChunkLength: 500,
@@ -68,6 +71,7 @@ describe("resolveVoiceConfig", () => {
     expect(config.speakResponses).toBe(DEFAULT_CONFIG.speakResponses)
     expect(config.speakSubagentResponses).toBe(DEFAULT_CONFIG.speakSubagentResponses)
     expect(config.speakOnIdle).toBe(DEFAULT_CONFIG.speakOnIdle)
+    expect(config.speakQuestions).toBe(DEFAULT_CONFIG.speakQuestions)
     expect(config.idleAnnouncement).toBe(DEFAULT_CONFIG.idleAnnouncement)
     expect(config.speechBlocks).toEqual(DEFAULT_CONFIG.speechBlocks)
     expect(config.maxSpeechChunkChars).toBe(DEFAULT_CONFIG.maxSpeechChunkChars)
@@ -75,5 +79,11 @@ describe("resolveVoiceConfig", () => {
     expect(config.maxSpeechChars).toBe(DEFAULT_CONFIG.maxSpeechChars)
     expect(config.normalPauseMs).toBe(DEFAULT_CONFIG.normalPauseMs)
     expect(config.sentencePauseMs).toBe(DEFAULT_CONFIG.sentencePauseMs)
+  })
+
+  it("enables question speech by default", () => {
+    const config = resolveVoiceConfig(undefined)
+
+    expect(config.speakQuestions).toBe(true)
   })
 })

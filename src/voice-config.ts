@@ -130,6 +130,7 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     speakResponses: readBoolean(input.speakResponses, DEFAULT_CONFIG.speakResponses),
     speakSubagentResponses: readBoolean(input.speakSubagentResponses, DEFAULT_CONFIG.speakSubagentResponses),
     speakOnIdle: readBoolean(input.speakOnIdle, DEFAULT_CONFIG.speakOnIdle),
+    speakQuestions: readBoolean(input.speakQuestions, DEFAULT_CONFIG.speakQuestions),
     idleAnnouncement: readString(input.idleAnnouncement, DEFAULT_CONFIG.idleAnnouncement),
     speechBlocks: readVoiceBlocks(input.speechBlocks),
     maxSpeechChunkChars,

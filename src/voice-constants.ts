@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   speakResponses: true,
   speakSubagentResponses: false,
   speakOnIdle: false,
+  speakQuestions: true,
   idleAnnouncement: "Task completed.",
   speechBlocks: ["message", "idle"],
   maxSpeechChunkChars: 1000,

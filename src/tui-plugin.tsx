@@ -10,6 +10,7 @@ import { MessageStore } from "./messages/message-store.js"
 import { PlaybackPipeline } from "./playback/playback-pipeline.js"
 import { SessionStore } from "./session/session-store.js"
 import { IdleController } from "./session/idle-controller.js"
+import { QuestionController } from "./session/question-controller.js"
 import { TimerRegistry } from "./shared/timer-registry.js"
 import { VoiceStateStore } from "./state/voice-state-store.js"
 import { StreamingController } from "./streaming/streaming-controller.js"
@@ -145,6 +146,7 @@ const tui: TuiPlugin = async (api, options) => {
   messageStore.onUpdated((message) => latestStore.onMessageUpdated(message))
   const streaming = new StreamingController(api, config, stateStore, playback, sessionStore, messageStore, latestStore)
   const idle = new IdleController(api, config, stateStore, playback, sessionStore)
+  const questions = new QuestionController(api, config, stateStore, playback, sessionStore)
   const commands = new VoiceCommands(api.route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast(toast))
   playback.start()
   const shortcutKeys = api.keybind.create(
@@ -208,6 +210,7 @@ const tui: TuiPlugin = async (api, options) => {
     return (async () => {
       streaming.dispose()
       idle.dispose()
+      questions.dispose()
       messageStore.dispose()
       sessionStore.dispose()
       await playback.dispose()

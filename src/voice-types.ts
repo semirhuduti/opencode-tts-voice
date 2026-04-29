@@ -18,6 +18,7 @@ export type VoicePluginOptions = {
   speakResponses?: unknown
   speakSubagentResponses?: unknown
   speakOnIdle?: unknown
+  speakQuestions?: unknown
   idleAnnouncement?: unknown
   speechBlocks?: unknown
   maxSpeechChunkChars?: unknown
@@ -49,6 +50,7 @@ export type VoiceConfig = {
   speakResponses: boolean
   speakSubagentResponses: boolean
   speakOnIdle: boolean
+  speakQuestions: boolean
   idleAnnouncement: string
   speechBlocks: VoiceBlock[]
   maxSpeechChunkChars: number
@@ -73,7 +75,7 @@ export type VoiceState = {
   error?: string
 }
 
-export type SpeechSource = "stream" | "latest" | "idle"
+export type SpeechSource = "stream" | "latest" | "idle" | "question"
 
 export type PreparedChunk = {
   text: string

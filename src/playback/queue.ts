@@ -6,6 +6,7 @@ export type QueueTrace = {
   eventSeq?: number
   sessionID?: string
   messageID?: string
+  requestID?: string
   partID?: string
   block?: Extract<VoiceBlock, "reason" | "message">
   field?: string
@@ -16,6 +17,8 @@ export type QueueTrace = {
   nextTextLength?: number
   chunkIndex?: number
   chunkCount?: number
+  questionIndex?: number
+  questionCount?: number
   restLength?: number
   finalFlush?: boolean
   cursorReset?: boolean
