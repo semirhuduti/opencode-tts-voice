@@ -11,7 +11,6 @@
     "tui"
   ],
   "files": [
-    "agents",
     "dist",
     "README.md",
     "LICENSE"

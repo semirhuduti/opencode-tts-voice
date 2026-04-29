@@ -1,10 +1,5 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
-import {
-  createTtsFriendlySkillSystemPrompt,
-  isTtsEnabled,
-  readTtsFriendlySkill,
-  ttsFriendlySkillCandidatePaths,
-} from "./skill-system-prompt.js"
+import { createTtsFriendlySystemPrompt, isTtsEnabled } from "./system-prompt-injection.js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { createLogger } from "./voice-log.js"
 
@@ -26,25 +21,10 @@ const server: Plugin = async (ctx) => {
         return
       }
 
-      const search = {
-        directory: ctx.directory,
-        worktree: ctx.worktree,
-      }
+      output.system.push(createTtsFriendlySystemPrompt())
 
-      const skill = await readTtsFriendlySkill(search)
-      if (!skill) {
-        log.warn("tts-friendly skill unavailable", {
-          sessionID: input.sessionID,
-          searchPaths: ttsFriendlySkillCandidatePaths(search),
-        })
-        return
-      }
-
-      output.system.push(createTtsFriendlySkillSystemPrompt(skill.content))
-
-      log.debug("tts-friendly skill injected", {
+      log.debug("tts-friendly guidance added to system prompt", {
         sessionID: input.sessionID,
-        file: skill.file,
       })
     },
   }

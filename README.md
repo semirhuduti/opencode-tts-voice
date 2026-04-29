@@ -42,17 +42,11 @@ This package exposes a TUI plugin entrypoint and runs inside the OpenCode termin
 
 Speech generation runs in a persistent helper process so Kokoro/ONNX work and WAV encoding do not block the TUI event loop.
 
-## Recommended Agent Skill
+## Spoken-Friendly System Prompt
 
-This package includes a `tts-friendly-responses` agent skill that helps agents write responses that are easier to understand through speech playback. The runtime sanitizer still cleans up streamed text before playback, but the skill improves the source response by encouraging spoken-friendly prose instead of visually dense formatting.
+This package includes built-in system prompt guidance that helps agents write responses that are easier to understand through speech playback. The runtime sanitizer still cleans up streamed text before playback, but the system prompt improves the source response by encouraging spoken-friendly prose instead of visually dense formatting.
 
-Install the skill globally for OpenCode with the shared agent skills installer:
-
-```bash
-npx skills@latest add semirhuduti/opencode-tts-voice --skill tts-friendly-responses -g -a opencode
-```
-
-The plugin also includes a server entrypoint that loads this skill into each session's system context when the skill file exists and speech is enabled. Add the package to both OpenCode plugin configs if you want voice playback controls and automatic skill loading:
+There is no separate skill to install. The server plugin adds the guidance directly to each session's system prompt when speech is enabled. Add the package to your OpenCode plugin config if you want automatic spoken-friendly response guidance:
 
 ```json
 {
@@ -61,6 +55,8 @@ The plugin also includes a server entrypoint that loads this skill into each ses
 ```
 
 Keep the TUI config shown below for the voice playback UI and shortcuts.
+
+The injected system prompt also instructs agents to use OpenCode's ask question tool when they need information from you, one question per tool call, so question prompts can be spoken reliably.
 
 ## Config
 
