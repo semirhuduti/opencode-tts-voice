@@ -194,7 +194,7 @@ function HistoryPickerDialog(props: {
 
   return (
     <props.api.ui.DialogSelect
-      title="Assistant History"
+      title="Assistant History - enter plays selected, shift+enter continues from selected"
       options={options}
       skipFilter
       current={selectedMessageID()}

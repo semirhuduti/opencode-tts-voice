@@ -25,6 +25,11 @@ function textPart(text: string, overrides: Record<string, unknown> = {}) {
 
 function createApi(messages: unknown[], parts: unknown[] | Record<string, unknown[]>) {
   return {
+    client: {
+      session: {
+        messages: async () => ({ data: [] }),
+      },
+    },
     state: {
       session: {
         messages: () => messages,
@@ -123,6 +128,35 @@ describe("LatestMessageStore", () => {
     expect(history[0]?.messageID).toBe("message-51")
     expect(history.at(-1)?.messageID).toBe("message-2")
     expect(history.some((entry) => ["user", "summary", "incomplete", "empty"].includes(entry.messageID))).toBe(false)
+    timers.dispose()
+  })
+
+  it("loads playable history from the session API when state has no messages", async () => {
+    const api = {
+      ...createApi([], []),
+      client: {
+        session: {
+          messages: async () => ({
+            data: [
+              { info: completedMessage("old-1", 1), parts: [textPart("Old one.")] },
+              { info: completedMessage("old-2", 2), parts: [textPart("Old two.")] },
+            ],
+          }),
+        },
+      },
+    }
+    const timers = new TimerRegistry()
+    const sessionStore = createSessionStore()
+    const latest = new LatestMessageStore(api as never, DEFAULT_CONFIG, timers, sessionStore as never)
+
+    const history = await latest.collectDisplayHistory("session-1")
+
+    expect(history.map((entry) => entry.messageID)).toEqual(["old-2", "old-1"])
+    expect(await latest.collectContinuationHistory("session-1", "old-1")).toMatchObject([
+      { messageID: "old-1", text: "Old one." },
+      { messageID: "old-2", text: "Old two." },
+    ])
+    expect(await latest.hasPlayableHistory("session-1")).toBe(true)
     timers.dispose()
   })
 

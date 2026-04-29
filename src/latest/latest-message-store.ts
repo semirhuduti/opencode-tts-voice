@@ -4,7 +4,7 @@ import { createLogger } from "../voice-log.js"
 import type { VoiceBlock, VoiceConfig } from "../voice-types.js"
 import { prepareSpeechText } from "../voice-text.js"
 import type { TimerRegistry } from "../shared/timer-registry.js"
-import { textFingerprint, textPreview } from "../shared/voice-utils.js"
+import { formatError, textFingerprint, textPreview } from "../shared/voice-utils.js"
 import type { SessionStore } from "../session/session-store.js"
 
 const HISTORY_DISPLAY_LIMIT = 50
@@ -23,6 +23,8 @@ type HistoryChangedCallback = (sessionID: string) => void
 export class LatestMessageStore {
   private readonly log = createLogger("latest")
   private readonly latestBySession = new Map<string, string>()
+  private readonly loadedHistoryBySession = new Map<string, AssistantHistoryEntry[]>()
+  private readonly historyLoadBySession = new Map<string, Promise<AssistantHistoryEntry[]>>()
   private readonly historyCallbacks = new Set<HistoryChangedCallback>()
 
   constructor(
@@ -101,13 +103,13 @@ export class LatestMessageStore {
   async collectDisplayHistory(sessionID: string, limit = HISTORY_DISPLAY_LIMIT) {
     if (!(await this.sessionStore.shouldSpeakSession(sessionID))) return []
 
-    return this.collectPlayableHistory(sessionID).slice(-limit).reverse()
+    return (await this.collectPlayableHistory(sessionID)).slice(-limit).reverse()
   }
 
   async collectContinuationHistory(sessionID: string, selectedMessageID: string) {
     if (!(await this.sessionStore.shouldSpeakSession(sessionID))) return []
 
-    const entries = this.collectPlayableHistory(sessionID)
+    const entries = await this.collectPlayableHistory(sessionID)
     const start = entries.findIndex((entry) => entry.messageID === selectedMessageID)
     return start === -1 ? [] : entries.slice(start)
   }
@@ -115,10 +117,18 @@ export class LatestMessageStore {
   async hasPlayableHistory(sessionID: string) {
     if (!(await this.sessionStore.shouldSpeakSession(sessionID))) return false
 
-    return this.collectPlayableHistory(sessionID, 1).length > 0
+    return (await this.collectPlayableHistory(sessionID, 1)).length > 0
   }
 
-  collectPlayableHistory(sessionID: string, stopAfter?: number) {
+  async collectPlayableHistory(sessionID: string, stopAfter?: number) {
+    const stateEntries = this.collectStatePlayableHistory(sessionID, stopAfter)
+    if (stateEntries.length > 0 || stopAfter === 0) return stateEntries
+
+    const loadedEntries = this.loadedHistoryBySession.get(sessionID) ?? await this.loadSessionHistory(sessionID)
+    return stopAfter === undefined ? loadedEntries : loadedEntries.slice(0, stopAfter)
+  }
+
+  collectStatePlayableHistory(sessionID: string, stopAfter?: number) {
     const entries: AssistantHistoryEntry[] = []
     const messages = this.api.state.session.messages(sessionID)
 
@@ -168,7 +178,75 @@ export class LatestMessageStore {
 
   clearSession(sessionID: string) {
     this.latestBySession.delete(sessionID)
+    this.loadedHistoryBySession.delete(sessionID)
+    this.historyLoadBySession.delete(sessionID)
     this.notifyHistoryChanged(sessionID)
+  }
+
+  private async loadSessionHistory(sessionID: string) {
+    const existing = this.historyLoadBySession.get(sessionID)
+    if (existing) return existing
+
+    const load = this.fetchSessionHistory(sessionID).finally(() => {
+      this.historyLoadBySession.delete(sessionID)
+    })
+    this.historyLoadBySession.set(sessionID, load)
+    return load
+  }
+
+  private async fetchSessionHistory(sessionID: string) {
+    try {
+      const result = await this.api.client.session.messages({ sessionID })
+      if (result.error) {
+        this.log.warn("session history lookup failed", { sessionID, error: formatError(result.error) })
+        return []
+      }
+
+      const entries = (result.data ?? []).flatMap((item, index) => {
+        const message = item.info
+        const completed = message.role === "assistant" && "completed" in message.time && Boolean(message.time.completed)
+        if (message.role !== "assistant" || message.summary || !completed) return []
+
+        const text = this.collectAssistantTextFromParts(item.parts)
+        if (!text) return []
+        return [{
+          sessionID: message.sessionID,
+          messageID: message.id,
+          created: message.time.created,
+          text,
+          preview: textPreview(text),
+          chronologicalIndex: index,
+        }]
+      })
+
+      this.loadedHistoryBySession.set(sessionID, entries)
+      if (entries.length > 0) this.notifyHistoryChanged(sessionID)
+      return entries
+    } catch (error) {
+      this.log.warn("session history lookup failed", { sessionID, error: formatError(error) })
+      return []
+    }
+  }
+
+  private collectAssistantTextFromParts(parts: ReturnType<TuiPluginApi["state"]["part"]>) {
+    const text = parts
+      .filter(
+        (part): part is Extract<(typeof parts)[number], { type: "text" | "reasoning" }> => {
+          if (part.type === "reasoning") return this.isVoiceBlockEnabled("reason")
+          if (part.type === "text") return this.isVoiceBlockEnabled("message") && !part.synthetic && !part.ignored
+          return false
+        },
+      )
+      .map((part) => part.text)
+      .join(" ")
+
+    const prepared = prepareSpeechText(text, this.config.maxSpeechChars, this.config)
+    this.log.info("assistant text collected", {
+      partCount: parts.length,
+      rawLength: text.length,
+      preparedLength: prepared.length,
+    })
+    return prepared || undefined
   }
 
   private isVoiceBlockEnabled(block: VoiceBlock) {
