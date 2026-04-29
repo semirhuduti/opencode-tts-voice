@@ -51,6 +51,11 @@ export function buildPlayerArgs(playerBin: string, args: string[], file: string)
   return [...defaults, ...args, file]
 }
 
+export function describePlayer(playerBin: string) {
+  const backend = toBasePlayer(playerBin)
+  return { audioPlayer: playerBin, backend, player: backend }
+}
+
 export class PlayerService {
   private resolvedPlayer?: string
 
@@ -78,8 +83,9 @@ export class PlayerService {
       this.logger.info("resolve player candidate", { candidate, resolved: resolved ?? null })
       if (!resolved) continue
       this.resolvedPlayer = resolved
-      this.onBackend(toBasePlayer(resolved))
-      this.logger.info("resolve player success", { audioPlayer: resolved, backend: toBasePlayer(resolved) })
+      const backend = toBasePlayer(resolved)
+      this.onBackend(backend)
+      this.logger.info("resolve player success", describePlayer(resolved))
       return resolved
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { buildPlayerArgs, toBasePlayer } from "../../src/playback/player-service.js"
+import { buildPlayerArgs, describePlayer, toBasePlayer } from "../../src/playback/player-service.js"
 
 describe("player helpers", () => {
   it("uses default args for supported players", () => {
@@ -19,5 +19,13 @@ describe("player helpers", () => {
 
   it("normalizes a player path to its backend name", () => {
     expect(toBasePlayer("/usr/local/bin/mpv")).toBe("mpv")
+  })
+
+  it("describes the resolved player backend", () => {
+    expect(describePlayer("/usr/local/bin/mpv")).toEqual({
+      audioPlayer: "/usr/local/bin/mpv",
+      backend: "mpv",
+      player: "mpv",
+    })
   })
 })
