@@ -187,24 +187,24 @@ async function main() {
   await cleanup(false)
 }
 
-function startWorkerMode() {
-  logger.info("helper worker mode started")
+function startChildMode() {
+  logger.info("helper child mode started")
   send = (message) => {
-    postMessage(message)
+    process.send?.(message)
   }
 
-  addEventListener("message", (event: MessageEvent<HelperRequest>) => {
-    void handle(event.data, false).catch((error) => {
+  process.on("message", (message: HelperRequest) => {
+    void handle(message, false).catch((error) => {
       send({ type: "error", error: formatError(error) })
     })
+  })
+
+  process.once("disconnect", () => {
+    void cleanup(true)
   })
 }
 
 function startProcessMode() {
-  if (process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker") {
-    throw new Error("Refusing to start helper process mode while worker mode is requested")
-  }
-
   logger.info("helper process mode started")
   process.once("SIGTERM", () => {
     void cleanup(true)
@@ -216,8 +216,8 @@ function startProcessMode() {
   })
 }
 
-if (process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker") {
-  startWorkerMode()
+if (typeof process.send === "function") {
+  startChildMode()
 } else {
   startProcessMode()
 }

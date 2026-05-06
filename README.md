@@ -26,9 +26,11 @@ Still wip, make sure to install sharp versions if you want a bit more reliabilit
 - OpenCode with plugin support
 - one of `mpv`, `ffplay`, `paplay`, or `aplay` available on the system. `mpv` is recommended.
 
-Optional:
+Optional for Linux x64 NVIDIA GPU execution:
 
-- CUDA and cuDNN runtime libraries for GPU execution
+- NVIDIA driver with `nvidia-smi` working
+- CUDA runtime libraries
+- cuDNN runtime libraries
 
 ## Install
 
@@ -89,6 +91,31 @@ The plugin works with defaults, so the `shortcuts` block is optional unless you 
 
 If you install locally, OpenCode may write the plugin entry into your project `.opencode/tui.json` instead.
 
+## GPU Setup
+
+If you want to force GPU execution on Linux x64 with an NVIDIA GPU, set `device` to `cuda` instead of relying on `auto`:
+
+```json
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": [
+    [
+      "@semirhuduti/opencode-tts-voice",
+      {
+        "device": "cuda"
+      }
+    ]
+  ]
+}
+```
+
+Quick checks before debugging the plugin:
+
+- `nvidia-smi` should show your GPU and driver.
+- `ldconfig -p | grep -E 'libcuda|libcudnn|libcublas|libcublasLt|libcurand|libcufft'` should show the CUDA and cuDNN runtime libraries.
+
+Restart OpenCode after changing the config.
+
 ## Options
 
 | Option | Type | Default | Description |
@@ -123,6 +150,20 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 ## Logging
 
 Runtime logging defaults to warnings and errors only to avoid terminal redraw pressure in the TUI. Enabled logs are also written beside OpenCode's own logs at `${XDG_DATA_HOME:-~/.local/share}/opencode/log/opencode-tts-voice-<timestamp>.log`. Set `OPENCODE_TTS_VOICE_LOG_LEVEL=debug` or `info` when diagnosing plugin behavior. Helper process logs are silent by default because stdout is used for the helper protocol; set `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL=warn` or `error` only when debugging helper startup failures.
+
+When debugging GPU selection, set `OPENCODE_TTS_VOICE_LOG_LEVEL=info` before launching OpenCode and look for `runtime init success` with `{"device":"cuda"}` in the plugin log file.
+
+## GPU Troubleshooting
+
+On Linux x64, `onnxruntime-node` needs an extra CUDA provider library named `libonnxruntime_providers_cuda.so`. A normal npm install downloads it automatically, but some OpenCode cached plugin installs can miss that step. When that happens the plugin falls back to CPU even though the NVIDIA driver, CUDA runtime, and cuDNN are already installed.
+
+OpenCode caches plugin packages under `~/.cache/opencode/packages/@semirhuduti/opencode-tts-voice@<version>/`. If GPU is not being used and you see an error mentioning `libonnxruntime_providers_cuda.so`, repair the cached install by running:
+
+```bash
+node "~/.cache/opencode/packages/@semirhuduti/opencode-tts-voice@<version>/node_modules/onnxruntime-node/script/install.js"
+```
+
+That script downloads the missing ONNX Runtime CUDA execution provider files into the cached package. Restart OpenCode after it finishes.
 
 ## Shortcuts
 
