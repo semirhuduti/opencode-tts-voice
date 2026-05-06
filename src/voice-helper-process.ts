@@ -3,6 +3,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { stdin, stdout } from "node:process"
 import { createInterface } from "node:readline"
+import { pathToFileURL } from "node:url"
 import { trimSilence, wavFromFloat32 } from "./voice-audio.js"
 import type { HelperRequest, HelperResponse, RuntimeStatus } from "./voice-helper-protocol.js"
 import { KokoroRuntime } from "./voice-kokoro.js"
@@ -17,21 +18,37 @@ type ActiveRequest = {
 
 type Send = (message: HelperResponse) => void
 
+export type ServiceState = {
+  runtime?: KokoroRuntime
+  runtimeKey: string
+  currentConfig?: VoiceConfig
+  active?: ActiveRequest
+  cancelledRequests: Set<number>
+  cancelledEpoch: number
+  tempDir?: Promise<string>
+  sequence: number
+  disposed: boolean
+  work: Promise<void>
+}
+
 const logger = createLogger("helper-process")
 
-let runtime: KokoroRuntime | undefined
-let runtimeKey = ""
-let currentConfig: VoiceConfig | undefined
-let active: ActiveRequest | undefined
-const cancelledRequests = new Set<number>()
-let cancelledEpoch = -1
-let tempDir: Promise<string> | undefined
-let sequence = 0
-let disposed = false
-let work: Promise<void> = Promise.resolve()
 let send: Send = (message) => {
   stdout.write(`${JSON.stringify(message)}\n`)
 }
+
+export function createServiceState(): ServiceState {
+  return {
+    runtimeKey: "",
+    cancelledRequests: new Set<number>(),
+    cancelledEpoch: -1,
+    sequence: 0,
+    disposed: false,
+    work: Promise.resolve(),
+  }
+}
+
+const service = createServiceState()
 
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
@@ -61,32 +78,32 @@ function status(status: RuntimeStatus) {
   send({ type: "status", status })
 }
 
-function runtimeFor(config: VoiceConfig) {
+function runtimeFor(state: ServiceState, config: VoiceConfig) {
   const key = runtimeIdentity(config)
-  currentConfig = config
-  if (runtime && runtimeKey === key) return runtime
+  state.currentConfig = config
+  if (state.runtime && state.runtimeKey === key) return state.runtime
 
   setTransformersCache(config)
-  runtimeKey = key
-  runtime = new KokoroRuntime(config, status, createLogger("kokoro"))
-  return runtime
+  state.runtimeKey = key
+  state.runtime = new KokoroRuntime(config, status, createLogger("kokoro"))
+  return state.runtime
 }
 
-async function ensureTempDir() {
-  if (!tempDir) {
-    tempDir = fs.mkdtemp(path.join(os.tmpdir(), "opencode-tts-voice-"))
+async function ensureTempDir(state: ServiceState) {
+  if (!state.tempDir) {
+    state.tempDir = fs.mkdtemp(path.join(os.tmpdir(), "opencode-tts-voice-"))
     logger.info("temp dir requested")
   }
-  return tempDir
+  return state.tempDir
 }
 
-async function writeAudioFile(audio: Float32Array, sampleRate: number, request: ActiveRequest) {
-  const config = currentConfig
+async function writeAudioFile(state: ServiceState, audio: Float32Array, sampleRate: number, request: ActiveRequest) {
+  const config = state.currentConfig
   if (!config) throw new Error("Missing voice config")
 
-  const dir = await ensureTempDir()
+  const dir = await ensureTempDir(state)
   const trimmed = trimSilence(audio, sampleRate, config.trimSilenceThreshold, config.leadingAudioPadMs)
-  const file = path.join(dir, `${Date.now()}-${request.id}-${sequence++}.wav`)
+  const file = path.join(dir, `${Date.now()}-${request.id}-${state.sequence++}.wav`)
   await fs.writeFile(file, wavFromFloat32(trimmed, sampleRate))
   logger.info("audio file written", {
     file,
@@ -98,25 +115,30 @@ async function writeAudioFile(audio: Float32Array, sampleRate: number, request: 
   return file
 }
 
-function isCancelled(request: ActiveRequest) {
-  return request.cancelled || cancelledRequests.has(request.id) || request.epoch <= cancelledEpoch || disposed
+function isCancelled(state: ServiceState, request: ActiveRequest) {
+  return request.cancelled || state.cancelledRequests.has(request.id) || request.epoch <= state.cancelledEpoch || state.disposed
 }
 
-async function generate(input: Extract<HelperRequest, { type: "generate" }>) {
+async function generate(state: ServiceState, input: Extract<HelperRequest, { type: "generate" }>) {
   const request: ActiveRequest = {
     id: input.id,
     epoch: input.epoch,
     cancelled: false,
   }
-  active = request
+  state.active = request
 
   try {
-    const tts = runtimeFor(input.config)
-    for await (const segment of tts.stream(input.text)) {
-      if (isCancelled(request)) break
+    if (isCancelled(state, request)) {
+      send({ type: "cancelled", id: request.id, epoch: request.epoch })
+      return
+    }
 
-      const file = await writeAudioFile(segment.audio, segment.sampleRate, request)
-      if (isCancelled(request)) {
+    const tts = runtimeFor(state, input.config)
+    for await (const segment of tts.stream(input.text)) {
+      if (isCancelled(state, request)) break
+
+      const file = await writeAudioFile(state, segment.audio, segment.sampleRate, request)
+      if (isCancelled(state, request)) {
         await fs.unlink(file).catch(() => undefined)
         break
       }
@@ -130,7 +152,7 @@ async function generate(input: Extract<HelperRequest, { type: "generate" }>) {
       })
     }
 
-    if (isCancelled(request)) {
+    if (isCancelled(state, request)) {
       send({ type: "cancelled", id: request.id, epoch: request.epoch })
       return
     }
@@ -139,36 +161,53 @@ async function generate(input: Extract<HelperRequest, { type: "generate" }>) {
   } catch (error) {
     send({ type: "error", id: request.id, epoch: request.epoch, error: formatError(error) })
   } finally {
-    if (active === request) active = undefined
+    if (state.active === request) state.active = undefined
   }
 }
 
-async function cleanup(exitProcess: boolean) {
-  disposed = true
-  if (active) active.cancelled = true
-  const dir = tempDir
-  tempDir = undefined
+export async function cleanupServiceState(state: ServiceState) {
+  state.disposed = true
+  if (state.active) state.active.cancelled = true
+  const dir = state.tempDir
+  state.tempDir = undefined
   if (dir) {
     const value = await dir.catch(() => undefined)
     if (value) await fs.rm(value, { recursive: true, force: true }).catch(() => undefined)
   }
+}
+
+async function cleanup(exitProcess: boolean) {
+  await cleanupServiceState(service)
   if (exitProcess) process.exit(0)
 }
 
-async function handle(message: HelperRequest, exitProcess: boolean) {
+export function handleServiceMessage(state: ServiceState, message: HelperRequest) {
   if (message.type === "generate") {
-    work = work.then(() => generate(message))
+    if (state.disposed) {
+      send({ type: "error", id: message.id, epoch: message.epoch, error: "TTS helper is disposed" })
+      return
+    }
+    state.work = state.work.then(() => generate(state, message))
     return
   }
 
   if (message.type === "cancel") {
-    if (typeof message.id === "number") cancelledRequests.add(message.id)
-    if (typeof message.epoch === "number") cancelledEpoch = Math.max(cancelledEpoch, message.epoch)
-    if (active && isCancelled(active)) active.cancelled = true
+    if (typeof message.id === "number") state.cancelledRequests.add(message.id)
+    if (typeof message.epoch === "number") state.cancelledEpoch = Math.max(state.cancelledEpoch, message.epoch)
+    if (state.active && isCancelled(state, state.active)) state.active.cancelled = true
     return
   }
 
-  await cleanup(exitProcess)
+  void cleanupServiceState(state)
+}
+
+async function handle(message: HelperRequest, exitProcess: boolean) {
+  if (message.type === "dispose") {
+    await cleanup(exitProcess)
+    return
+  }
+
+  handleServiceMessage(service, message)
 }
 
 async function main() {
@@ -216,8 +255,16 @@ function startProcessMode() {
   })
 }
 
-if (process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker") {
-  startWorkerMode()
-} else {
-  startProcessMode()
+function isEntrypoint() {
+  const entry = process.argv[1]
+  if (!entry) return process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker"
+  return pathToFileURL(path.resolve(entry)).href === import.meta.url
+}
+
+if (isEntrypoint()) {
+  if (process.env.OPENCODE_TTS_VOICE_HELPER_MODE === "worker") {
+    startWorkerMode()
+  } else {
+    startProcessMode()
+  }
 }

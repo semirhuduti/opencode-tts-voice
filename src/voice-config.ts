@@ -55,6 +55,20 @@ function readStringList(value: unknown, fallback: string[]) {
   return next.length ? next : fallback
 }
 
+function readOptionalStringList(value: unknown) {
+  if (typeof value === "string") {
+    const next = value.trim()
+    return next ? [next] : undefined
+  }
+
+  if (!Array.isArray(value)) return undefined
+  const next = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return next.length ? next : undefined
+}
+
 function readDevice(value: unknown): DevicePreference {
   switch (value) {
     case "auto":
@@ -146,6 +160,8 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
     leadingAudioPadMs: readInteger(input.leadingAudioPadMs, DEFAULT_CONFIG.leadingAudioPadMs, 0),
     normalPauseMs: readInteger(input.normalPauseMs, DEFAULT_CONFIG.normalPauseMs, 0),
     sentencePauseMs: readInteger(input.sentencePauseMs, DEFAULT_CONFIG.sentencePauseMs, 0),
+    ttsServiceCommand: readOptionalString(input.ttsServiceCommand),
+    ttsServiceArgs: readOptionalStringList(input.ttsServiceArgs),
     shortcuts: readShortcuts(input.shortcuts),
   }
 }

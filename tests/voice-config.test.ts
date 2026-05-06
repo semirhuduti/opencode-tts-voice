@@ -19,6 +19,8 @@ describe("resolveVoiceConfig", () => {
       fileExtensions: [".Foo", "bar", "bad-value", " ", 42],
       normalPauseMs: 100,
       sentencePauseMs: 250,
+      ttsServiceCommand: "nice",
+      ttsServiceArgs: ["-n", "10", "{node}", "{helper}"],
     })
 
     expect(config.audioPlayer).toBe("mpv")
@@ -35,6 +37,8 @@ describe("resolveVoiceConfig", () => {
     expect(config.fileExtensions).toEqual(["foo", "bar"])
     expect(config.normalPauseMs).toBe(100)
     expect(config.sentencePauseMs).toBe(250)
+    expect(config.ttsServiceCommand).toBe("nice")
+    expect(config.ttsServiceArgs).toEqual(["-n", "10", "{node}", "{helper}"])
   })
 
   it("accepts a single file extension string", () => {

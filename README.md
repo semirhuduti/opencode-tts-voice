@@ -40,7 +40,7 @@ OpenCode loads the package automatically.
 
 This package exposes a TUI plugin entrypoint and runs inside the OpenCode terminal UI.
 
-Speech generation runs in a persistent helper process so Kokoro/ONNX work and WAV encoding do not block the TUI event loop.
+Speech generation runs in a persistent helper service process so Kokoro/ONNX work and WAV encoding do not block the TUI event loop. Because it is a separate operating-system process, you can lower or cap only speech generation without limiting OpenCode itself.
 
 ## Spoken-Friendly System Prompt
 
@@ -115,10 +115,92 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `normalPauseMs` | number | `240` | Pause added after normal chunks. |
 | `sentencePauseMs` | number | `420` | Pause added after sentence, clause, or newline-ending chunks. |
+| `ttsServiceCommand` | string | Node or Bun runtime used by OpenCode | Optional command used to start the TTS helper service. Use this only when wrapping the helper with OS resource controls. |
+| `ttsServiceArgs` | string or string[] | `['{helper}']` | Optional helper service arguments. `{helper}` expands to the bundled helper script, and `{node}` expands to the current JavaScript runtime executable. |
 | `shortcuts.history` | string | `f5` | TUI shortcut for opening the previous assistant message picker. Enter plays the selected message, and shift return plays from the selected message forward. |
 | `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
 | `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
+
+## Limiting TTS CPU Usage
+
+The plugin starts Kokoro generation in a child service process. By default it launches the bundled helper directly. To apply operating-system limits to only speech generation, set `ttsServiceCommand` and `ttsServiceArgs` to wrap that helper process.
+
+The `{helper}` placeholder means the bundled helper script. The `{node}` placeholder means the JavaScript runtime executable that is running OpenCode.
+
+Soft priority example with `nice`. This makes TTS yield CPU time more readily, but it is not a hard CPU cap:
+
+```json
+{
+  "plugin": [
+    [
+      "@semirhuduti/opencode-tts-voice",
+      {
+        "ttsServiceCommand": "nice",
+        "ttsServiceArgs": ["-n", "10", "{node}", "{helper}"]
+      }
+    ]
+  ]
+}
+```
+
+CPU affinity example with `taskset`. This confines TTS to one CPU core, but it does not cap usage on that core:
+
+```json
+{
+  "plugin": [
+    [
+      "@semirhuduti/opencode-tts-voice",
+      {
+        "ttsServiceCommand": "taskset",
+        "ttsServiceArgs": ["-c", "0", "{node}", "{helper}"]
+      }
+    ]
+  ]
+}
+```
+
+Hard CPU cap example with `cpulimit`. This limits the helper service to about 50 percent of one CPU core:
+
+```json
+{
+  "plugin": [
+    [
+      "@semirhuduti/opencode-tts-voice",
+      {
+        "ttsServiceCommand": "cpulimit",
+        "ttsServiceArgs": ["--limit", "50", "--", "{node}", "{helper}"]
+      }
+    ]
+  ]
+}
+```
+
+Hard CPU cap example with `systemd-run`. This starts the helper under a transient user unit with a 50 percent CPU quota:
+
+```json
+{
+  "plugin": [
+    [
+      "@semirhuduti/opencode-tts-voice",
+      {
+        "ttsServiceCommand": "systemd-run",
+        "ttsServiceArgs": [
+          "--user",
+          "--scope",
+          "--quiet",
+          "-p",
+          "CPUQuota=50%",
+          "{node}",
+          "{helper}"
+        ]
+      }
+    ]
+  ]
+}
+```
+
+You can use the same command and arguments in a user `systemd` service if you prefer a named, reusable unit. The important point is that only the helper service process is wrapped; the OpenCode TUI process remains unrestricted.
 
 ## Logging
 

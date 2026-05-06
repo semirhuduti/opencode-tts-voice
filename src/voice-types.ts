@@ -29,6 +29,8 @@ export type VoicePluginOptions = {
   leadingAudioPadMs?: unknown
   normalPauseMs?: unknown
   sentencePauseMs?: unknown
+  ttsServiceCommand?: unknown
+  ttsServiceArgs?: unknown
   shortcuts?: unknown
 }
 
@@ -62,6 +64,8 @@ export type VoiceConfig = {
   leadingAudioPadMs: number
   normalPauseMs: number
   sentencePauseMs: number
+  ttsServiceCommand?: string
+  ttsServiceArgs?: string[]
   shortcuts: ShortcutConfig
 }
 

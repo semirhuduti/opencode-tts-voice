@@ -27,6 +27,8 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   leadingAudioPadMs: 12,
   normalPauseMs: 240,
   sentencePauseMs: 420,
+  ttsServiceCommand: undefined,
+  ttsServiceArgs: undefined,
   shortcuts: {
     history: "f5",
     pause: "f6",
