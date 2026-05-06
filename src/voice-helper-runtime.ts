@@ -29,6 +29,7 @@ export class TtsHelperRuntime {
   private disposed = false
   private nextID = 1
   private pending = new Map<number, PendingRequest>()
+  private childStderr = ""
 
   constructor(
     private readonly config: VoiceConfig,
@@ -85,6 +86,7 @@ export class TtsHelperRuntime {
     const child = this.child
     this.child = undefined
     if (!child) return
+    this.childStderr = ""
 
     await new Promise<void>((resolve) => {
       let settled = false
@@ -138,7 +140,7 @@ export class TtsHelperRuntime {
 
   private async start() {
     const helper = fileURLToPath(new URL("./voice-helper-process.js", import.meta.url))
-    const child = fork(helper, {
+    const child = fork(helper, [], {
       env: {
         ...process.env,
         OPENCODE_TTS_VOICE_LOG_LEVEL: process.env.OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL ?? "silent",
@@ -152,7 +154,15 @@ export class TtsHelperRuntime {
       this.handleResponse(message)
     })
 
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      this.childStderr = `${this.childStderr}${String(chunk)}`.slice(-4000)
+    })
+
     child.on("error", (error) => {
+      this.logger.error("helper child error", {
+        error: formatError(error),
+        stderr: this.childStderr || undefined,
+      })
       this.failAll(error)
       this.child = undefined
       this.started = undefined
@@ -162,6 +172,11 @@ export class TtsHelperRuntime {
       if (this.child === child) this.child = undefined
       this.started = undefined
       if (this.disposed) return
+      this.logger.error("helper child exited", {
+        code,
+        signal,
+        stderr: this.childStderr.trim() || undefined,
+      })
       this.failAll(new Error(`TTS helper exited with code ${code ?? "unknown"}${signal ? ` (${signal})` : ""}`))
     })
   }
