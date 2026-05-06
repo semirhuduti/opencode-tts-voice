@@ -1,4 +1,3 @@
-import { fork, type ChildProcess } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import type { HelperRequest, HelperResponse, RuntimeStatus } from "./voice-helper-protocol.js"
 import type { VoiceConfig } from "./voice-types.js"
@@ -24,12 +23,11 @@ function formatError(error: unknown) {
 }
 
 export class TtsHelperRuntime {
-  private child?: ChildProcess
+  private worker?: Worker
   private started?: Promise<void>
   private disposed = false
   private nextID = 1
   private pending = new Map<number, PendingRequest>()
-  private childStderr = ""
 
   constructor(
     private readonly config: VoiceConfig,
@@ -69,7 +67,7 @@ export class TtsHelperRuntime {
   }
 
   async cancelEpoch(epoch: number) {
-    if (!this.child && !this.started) return
+    if (!this.worker && !this.started) return
     await this.send({ type: "cancel", epoch }).catch(() => undefined)
   }
 
@@ -83,53 +81,20 @@ export class TtsHelperRuntime {
     }
     this.pending.clear()
 
-    const child = this.child
-    this.child = undefined
-    if (!child) return
-    this.childStderr = ""
+    const worker = this.worker
+    this.worker = undefined
+    if (!worker) return
 
-    await new Promise<void>((resolve) => {
-      let settled = false
-      const done = () => {
-        if (settled) return
-        settled = true
-        resolve()
-      }
-
-      child.once("exit", done)
-      child.send?.({ type: "dispose" } satisfies HelperRequest, (error) => {
-        if (error) {
-          done()
-          return
-        }
-
-        setTimeout(() => {
-          if (child.exitCode === null && !child.killed) child.kill("SIGTERM")
-        }, 250)
-      })
-
-      setTimeout(() => {
-        if (child.exitCode === null && !child.killed) child.kill("SIGKILL")
-        done()
-      }, 1000)
-    })
+    worker.postMessage({ type: "dispose" } satisfies HelperRequest)
+    worker.terminate()
   }
 
   private async send(message: HelperRequest) {
     if (this.disposed) throw new Error("TTS helper is disposed")
     await this.ensureStarted()
-    const child = this.child
-    if (!child?.send || !child.connected) throw new Error("TTS helper failed to start")
-
-    await new Promise<void>((resolve, reject) => {
-      child.send?.(message, (error) => {
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve()
-      })
-    })
+    const worker = this.worker
+    if (!worker) throw new Error("TTS helper failed to start")
+    worker.postMessage(message)
   }
 
   private ensureStarted() {
@@ -140,44 +105,25 @@ export class TtsHelperRuntime {
 
   private async start() {
     const helper = fileURLToPath(new URL("./voice-helper-process.js", import.meta.url))
-    const child = fork(helper, [], {
+    const worker = new Worker(helper, {
+      type: "module",
       env: {
         ...process.env,
+        OPENCODE_TTS_VOICE_HELPER_MODE: "worker",
         OPENCODE_TTS_VOICE_LOG_LEVEL: process.env.OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL ?? "silent",
       },
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
-    })
-    this.child = child
-    this.logger.info("helper child started", { helper, pid: child.pid ?? null })
+    } as WorkerOptions & { env: Record<string, string | undefined> })
+    this.worker = worker
+    this.logger.info("helper worker started", { helper })
 
-    child.on("message", (message: HelperResponse) => {
-      this.handleResponse(message)
-    })
-
-    child.stderr?.on("data", (chunk: Buffer | string) => {
-      this.childStderr = `${this.childStderr}${String(chunk)}`.slice(-4000)
+    worker.addEventListener("message", (event: MessageEvent<HelperResponse>) => {
+      this.handleResponse(event.data)
     })
 
-    child.on("error", (error) => {
-      this.logger.error("helper child error", {
-        error: formatError(error),
-        stderr: this.childStderr || undefined,
-      })
-      this.failAll(error)
-      this.child = undefined
+    worker.addEventListener("error", (event) => {
+      this.failAll(event instanceof ErrorEvent ? event.error : event)
+      this.worker = undefined
       this.started = undefined
-    })
-
-    child.on("exit", (code, signal) => {
-      if (this.child === child) this.child = undefined
-      this.started = undefined
-      if (this.disposed) return
-      this.logger.error("helper child exited", {
-        code,
-        signal,
-        stderr: this.childStderr.trim() || undefined,
-      })
-      this.failAll(new Error(`TTS helper exited with code ${code ?? "unknown"}${signal ? ` (${signal})` : ""}`))
     })
   }
 
