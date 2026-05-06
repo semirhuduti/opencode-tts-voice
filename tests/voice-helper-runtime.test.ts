@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { DEFAULT_CONFIG } from "../src/voice-constants.js"
-import { TtsHelperRuntime } from "../src/voice-helper-runtime.js"
+import { resolveHelperServiceLaunch, TtsHelperRuntime } from "../src/voice-helper-runtime.js"
 import { createLogger } from "../src/voice-log.js"
 
 const tempDirs: string[] = []
@@ -29,6 +29,34 @@ afterEach(async () => {
 })
 
 describe("TtsHelperRuntime service process", () => {
+  it("uses a JavaScript runtime instead of an OpenCode execPath for the default service", () => {
+    expect(
+      resolveHelperServiceLaunch(
+        DEFAULT_CONFIG,
+        "/plugin/dist/voice-helper-process.js",
+        "/usr/bin/opencode",
+        { PATH: path.dirname(process.execPath) },
+      ),
+    ).toEqual({
+      command: process.execPath,
+      args: ["/plugin/dist/voice-helper-process.js"],
+    })
+  })
+
+  it("expands runtime and helper placeholders for wrapper commands", () => {
+    expect(
+      resolveHelperServiceLaunch(
+        { ttsServiceCommand: "nice", ttsServiceArgs: ["-n", "10", "{runtime}", "{helper}"] },
+        "/plugin/dist/voice-helper-process.js",
+        "/usr/bin/opencode",
+        { PATH: path.dirname(process.execPath) },
+      ),
+    ).toEqual({
+      command: "nice",
+      args: ["-n", "10", process.execPath, "/plugin/dist/voice-helper-process.js"],
+    })
+  })
+
   it("streams segments from a child process over newline JSON", async () => {
     const audioDir = await tempDir()
     const service = await writeServiceScript(`

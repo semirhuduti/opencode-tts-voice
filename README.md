@@ -115,8 +115,8 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `normalPauseMs` | number | `240` | Pause added after normal chunks. |
 | `sentencePauseMs` | number | `420` | Pause added after sentence, clause, or newline-ending chunks. |
-| `ttsServiceCommand` | string | Node or Bun runtime used by OpenCode | Optional command used to start the TTS helper service. Use this only when wrapping the helper with OS resource controls. |
-| `ttsServiceArgs` | string or string[] | `['{helper}']` | Optional helper service arguments. `{helper}` expands to the bundled helper script, and `{node}` expands to the current JavaScript runtime executable. |
+| `ttsServiceCommand` | string | Resolved Node or Bun runtime | Optional command used to start the TTS helper service. Use this only when wrapping the helper with OS resource controls. |
+| `ttsServiceArgs` | string or string[] | `['{helper}']` | Optional helper service arguments. `{helper}` expands to the bundled helper script, and `{runtime}` expands to the Node or Bun executable used for the helper. |
 | `shortcuts.history` | string | `f5` | TUI shortcut for opening the previous assistant message picker. Enter plays the selected message, and shift return plays from the selected message forward. |
 | `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
@@ -126,7 +126,7 @@ If you install locally, OpenCode may write the plugin entry into your project `.
 
 The plugin starts Kokoro generation in a child service process. By default it launches the bundled helper directly. To apply operating-system limits to only speech generation, set `ttsServiceCommand` and `ttsServiceArgs` to wrap that helper process.
 
-The `{helper}` placeholder means the bundled helper script. The `{node}` placeholder means the JavaScript runtime executable that is running OpenCode.
+The `{helper}` placeholder means the bundled helper script. The `{runtime}` placeholder means the Node or Bun executable used to run that helper. The older `{node}` placeholder is still accepted as an alias for `{runtime}`.
 
 Soft priority example with `nice`. This makes TTS yield CPU time more readily, but it is not a hard CPU cap:
 
@@ -137,7 +137,7 @@ Soft priority example with `nice`. This makes TTS yield CPU time more readily, b
       "@semirhuduti/opencode-tts-voice",
       {
         "ttsServiceCommand": "nice",
-        "ttsServiceArgs": ["-n", "10", "{node}", "{helper}"]
+        "ttsServiceArgs": ["-n", "10", "{runtime}", "{helper}"]
       }
     ]
   ]
@@ -153,7 +153,7 @@ CPU affinity example with `taskset`. This confines TTS to one CPU core, but it d
       "@semirhuduti/opencode-tts-voice",
       {
         "ttsServiceCommand": "taskset",
-        "ttsServiceArgs": ["-c", "0", "{node}", "{helper}"]
+        "ttsServiceArgs": ["-c", "0", "{runtime}", "{helper}"]
       }
     ]
   ]
@@ -169,7 +169,7 @@ Hard CPU cap example with `cpulimit`. This limits the helper service to about 50
       "@semirhuduti/opencode-tts-voice",
       {
         "ttsServiceCommand": "cpulimit",
-        "ttsServiceArgs": ["--limit", "50", "--", "{node}", "{helper}"]
+        "ttsServiceArgs": ["--limit", "50", "--", "{runtime}", "{helper}"]
       }
     ]
   ]
@@ -191,7 +191,7 @@ Hard CPU cap example with `systemd-run`. This starts the helper under a transien
           "--quiet",
           "-p",
           "CPUQuota=50%",
-          "{node}",
+          "{runtime}",
           "{helper}"
         ]
       }

@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import * as fsSync from "node:fs"
+import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createInterface } from "node:readline"
 import type { HelperRequest, HelperResponse, RuntimeStatus } from "./voice-helper-protocol.js"
@@ -22,6 +24,69 @@ type GeneratedSegment = {
 function formatError(error: unknown) {
   if (error instanceof Error && error.message) return error.message
   return String(error)
+}
+
+function isExecutable(file: string) {
+  try {
+    fsSync.accessSync(file, fsSync.constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function resolveExecutable(command: string, env: NodeJS.ProcessEnv) {
+  if (command.includes(path.sep)) return isExecutable(command) ? command : undefined
+
+  const envPath = env.PATH ?? ""
+  for (const dir of envPath.split(path.delimiter)) {
+    if (!dir) continue
+    const candidate = path.join(dir, command)
+    if (isExecutable(candidate)) return candidate
+  }
+
+  return undefined
+}
+
+function isJavaScriptRuntime(command: string) {
+  const base = path.basename(command).toLowerCase().replace(/\.exe$/, "")
+  return base === "node" || base === "nodejs" || base === "bun"
+}
+
+function resolveDefaultRuntime(execPath: string, env: NodeJS.ProcessEnv) {
+  if (isJavaScriptRuntime(execPath)) return execPath
+
+  const bunInstall = env.BUN_INSTALL ? path.join(env.BUN_INSTALL, "bin", "bun") : undefined
+  if (bunInstall && isExecutable(bunInstall)) return bunInstall
+
+  const runtime = resolveExecutable("bun", env) ?? resolveExecutable("node", env) ?? resolveExecutable("nodejs", env)
+  if (runtime) return runtime
+
+  throw new Error("No Node or Bun executable found for the TTS helper service. Install one, or set ttsServiceCommand.")
+}
+
+export function resolveHelperServiceLaunch(
+  config: Pick<VoiceConfig, "ttsServiceCommand" | "ttsServiceArgs">,
+  helper: string,
+  execPath = process.execPath,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  let runtime: string | undefined
+  const defaultRuntime = () => {
+    runtime ??= resolveDefaultRuntime(execPath, env)
+    return runtime
+  }
+  const replacePlaceholder = (value: string) => {
+    if (value === "{helper}") return helper
+    if (value === "{runtime}" || value === "{node}") return defaultRuntime()
+    return value
+  }
+
+  const command = config.ttsServiceCommand ? replacePlaceholder(config.ttsServiceCommand) : defaultRuntime()
+  const args = (config.ttsServiceCommand ? (config.ttsServiceArgs ?? ["{helper}"]) : ["{helper}"]).map(
+    replacePlaceholder,
+  )
+  return { command, args }
 }
 
 export class TtsHelperRuntime {
@@ -115,15 +180,7 @@ export class TtsHelperRuntime {
 
   private async start() {
     const helper = fileURLToPath(new URL("./voice-helper-process.js", import.meta.url))
-    const placeholders = {
-      "{helper}": helper,
-      "{node}": process.execPath,
-    }
-    const replacePlaceholder = (value: string) => placeholders[value as keyof typeof placeholders] ?? value
-    const command = replacePlaceholder(this.config.ttsServiceCommand ?? process.execPath)
-    const args = (this.config.ttsServiceCommand ? (this.config.ttsServiceArgs ?? ["{helper}"]) : ["{helper}"]).map(
-      replacePlaceholder,
-    )
+    const { command, args } = resolveHelperServiceLaunch(this.config, helper)
     const child = spawn(command, args, {
       env: {
         ...process.env,
