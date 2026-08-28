@@ -224,15 +224,22 @@ const tui: TuiPlugin = async (api, options) => {
   const questions = new QuestionController(api, config, stateStore, playback, sessionStore)
   const commands = new VoiceCommands(api.route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast(toast))
   playback.start()
-  const shortcutKeys = api.keybind.create(
-    {
-      history: config.shortcuts.history,
-      pause: config.shortcuts.pause,
-      skipLatest: config.shortcuts.skipLatest,
-      toggle: config.shortcuts.toggle,
-    },
-    config.shortcuts,
-  )
+  const shortcutKeys = api.keybind
+    ? api.keybind.create(
+        {
+          history: config.shortcuts.history,
+          pause: config.shortcuts.pause,
+          skipLatest: config.shortcuts.skipLatest,
+          toggle: config.shortcuts.toggle,
+        },
+        config.shortcuts,
+      )
+    : {
+        all: config.shortcuts,
+        get: (name: string) => config.shortcuts[name as keyof typeof config.shortcuts] ?? "",
+        match: (_name: string, _event: unknown) => false,
+        print: (name: string) => config.shortcuts[name as keyof typeof config.shortcuts] ?? "",
+      }
 
   const openHistoryPicker = async () => {
     const sessionID = activeSessionID(api.route.current)
@@ -255,7 +262,8 @@ const tui: TuiPlugin = async (api, options) => {
     )
   }
 
-  api.command.register(() => [
+  if (api.command) {
+    api.command.register(() => [
     {
       title: "Toggle speech",
       value: "tts.toggle",
@@ -297,6 +305,7 @@ const tui: TuiPlugin = async (api, options) => {
       },
     },
   ])
+  }
 
   api.slots.register({
     slots: {
