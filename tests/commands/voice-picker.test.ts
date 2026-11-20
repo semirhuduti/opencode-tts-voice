@@ -24,6 +24,15 @@ describe("voice picker", () => {
     expect(dialog?.options.find((option) => option.value === "af_heart")?.title).toContain("Current")
     expect(dialog?.actions?.[0].bind).toBe("ctrl+o")
     expect(dialog?.search?.("british female emma", dialog.options).map((option) => option.value)).toEqual(["bf_emma"])
+    expect(dialog?.search?.("male", dialog.options)).toHaveLength(13)
+    expect(dialog?.search?.("female", dialog.options)).toHaveLength(15)
+    expect(dialog?.search?.("british male", dialog.options).map((option) => option.value)).toEqual([
+      "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+    ])
+    expect(dialog?.search?.("FEMALE british", dialog.options).map((option) => option.value)).toEqual([
+      "bf_alice", "bf_emma", "bf_isabella", "bf_lily",
+    ])
+    expect(dialog?.search?.("em", dialog.options).map((option) => option.value)).toContain("bf_emma")
     expect(dialog?.search?.("am_puck", dialog.options).map((option) => option.value)).toEqual(["am_puck"])
     expect(previews).toEqual(["bf_emma"])
     expect(selected).toEqual(["am_puck"])

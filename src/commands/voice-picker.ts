@@ -22,8 +22,12 @@ export async function openVoicePicker(
     search: (query, choices) => {
       const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
       return choices.filter((choice) => {
+        const voice = VOICE_CHOICES.find((entry) => entry.id === choice.value)
         const searchable = `${choice.title} ${choice.description ?? ""} ${choice.category ?? ""}`.toLowerCase()
-        return terms.every((term) => searchable.includes(term))
+        return terms.every((term) => {
+          if (term === "male" || term === "female") return voice?.gender.toLowerCase() === term
+          return searchable.includes(term)
+        })
       })
     },
     actions: [{

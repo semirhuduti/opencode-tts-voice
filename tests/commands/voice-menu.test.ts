@@ -48,7 +48,7 @@ describe("voice shortcut menu", () => {
 
     expect(harness.menu?.title).toBe("Voice shortcuts")
     expect(harness.menu?.options).toEqual([
-      { title: "Choose voice  [unbound]", value: "choose" },
+      { title: "Choose voice", value: "choose" },
       { title: "Open assistant message history  [Ctrl+H]", value: "history" },
       { title: "Play or pause speech  [F6]", value: "pause" },
       { title: "Replay latest assistant message  [F7]", value: "latest" },

@@ -21,8 +21,8 @@ export async function openVoiceMenu(
     title: "Voice shortcuts",
     options: entries.map((entry) => {
       const keys = api.keymap.shortcuts(entry.id)
-      const shortcut = keys.length ? keys.join(", ") : "unbound"
-      return { title: `${entry.title}  [${shortcut}]`, value: entry.value }
+      const shortcut = keys.length ? `  [${keys.join(", ")}]` : ""
+      return { title: `${entry.title}${shortcut}`, value: entry.value }
     }),
   })
   if (isDisposed() || !selected) return
