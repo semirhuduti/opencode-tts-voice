@@ -152,7 +152,7 @@ Example project `opencode.jsonc`:
       "package": "/absolute/path/to/opencode-tts-voice",
       "options": {
         "voice": "am_adam",
-        "speed": 1.1,
+        "speed": 1.25,
         "dtype": "q4",
         "speechBlocks": ["message", "idle"],
         "shortcuts": {
@@ -176,7 +176,7 @@ Use a test project while validating the migration.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `voice` | string | `af_heart` | Voice ID used for speech generation. |
-| `speed` | number | `1` | Speech speed. Higher values are faster. |
+| `speed` | number | `1` | Speech speed, rounded to the nearest 0.25 and clamped to 0.25–5. Higher values are faster. |
 | `device` | string | `auto` | Preferred execution device. Accepted values: `auto`, `cpu`, `cuda`, `dml`, `gpu`, `wasm`, `webgpu`. The plugin falls back to CPU automatically if the preferred backend cannot initialize. |
 | `dtype` | string | `q8` | Model precision. Accepted values: `fp32`, `fp16`, `q4`, `q4f16`, `q8`. |
 | `model` | string | `onnx-community/Kokoro-82M-v1.0-ONNX` | Model ID or compatible local model path. |
@@ -208,6 +208,8 @@ When `speed` is not configured, speed adjustments are remembered in OpenCode's
 durable plugin storage across restarts. An explicitly configured, valid `speed`
 takes precedence on each plugin load; adjustments remain temporary and do not
 replace the previously remembered speed.
+Configured and previously saved positive speeds are rounded to the nearest
+0.25x step and limited to the 0.25x–5x range. Halfway values round up.
 
 The voice picker is available from the voice shortcut menu and the command
 palette. Search by name, accent, gender, or voice ID; use Ctrl+O to preview a

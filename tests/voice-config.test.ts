@@ -95,6 +95,14 @@ describe("resolveVoiceConfig", () => {
     expect(resolveVoiceConfig(undefined).sentencePauseMs).toBe(100)
   })
 
+  it("normalizes configured speech speeds to quarter steps within range", () => {
+    expect(resolveVoiceConfig({ speed: 1.1 }).speed).toBe(1)
+    expect(resolveVoiceConfig({ speed: 1.125 }).speed).toBe(1.25)
+    expect(resolveVoiceConfig({ speed: 0.1 }).speed).toBe(0.25)
+    expect(resolveVoiceConfig({ speed: 10 }).speed).toBe(5)
+    expect(resolveVoiceConfig({ speed: 0 }).speed).toBe(1)
+  })
+
   it("defaults and overrides the history shortcut", () => {
     expect(resolveVoiceConfig(undefined).shortcuts.history).toBe("f5")
 

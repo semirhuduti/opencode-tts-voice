@@ -18,7 +18,7 @@ import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { createLogger } from "./voice-log.js"
 import { VoiceRpc } from "./voice-rpc.js"
-import { createVoiceSpeedController } from "./voice-speed.js"
+import { createVoiceSpeedController, formatVoiceSpeed } from "./voice-speed.js"
 import { createVoiceSelectionController } from "./voice-selection.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
@@ -29,7 +29,7 @@ function Status(props: { state: VoiceStateStore; api: Context; speed: () => numb
   onCleanup(props.state.subscribe(() => setState(props.state.snapshot())))
   return (
     <text fg={props.api.theme.text.muted}>
-      {`[${voiceStatusLabel(state())} - ${props.speed()}x - Ctrl+F9]`}
+      {`[${voiceStatusLabel(state())} - ${formatVoiceSpeed(props.speed())}x - Ctrl+F9]`}
     </text>
   )
 }
@@ -133,12 +133,12 @@ export default Plugin.define({
     }
     const commands = new VoiceCommands(route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast.show(toast))
     playback.start()
-    const [speed, setSpeed] = createSignal(config.speed)
+    const [speed, setSpeed] = createSignal(speedController.percent)
     const adjustSpeed = (direction: -1 | 1) => {
       const next = speedController.adjust(direction)
       config.speed = next
-      setSpeed(next)
-      api.ui.toast.show({ variant: "info", message: `Speech speed: ${next}x` })
+      setSpeed(speedController.percent)
+      api.ui.toast.show({ variant: "info", message: `Speech speed: ${formatVoiceSpeed(speedController.percent)}x` })
     }
 
     async function openHistory() {

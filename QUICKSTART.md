@@ -139,13 +139,15 @@ Use the object form of the plugin entry to set options. For example:
 Replace the existing string entry with this object; don't add a second entry
 for the same checkout. Speed defaults to `1`; values below `1` are slower and
 values above `1` are faster. **Ctrl+F6** and **Ctrl+F7** adjust it by 0.25x,
-down to a minimum of 0.1x. The change applies to newly generated audio; audio
+within the range 0.25x–5x. Configured and previously saved positive speeds are
+rounded to the nearest 0.25x step (halfway values round up) and limited to
+that range. The change applies to newly generated audio; audio
 already generated may finish at the previous speed. Pauses between chunks also
 shorten or lengthen with the speed.
 
 Without a `speed` option, the plugin remembers your last adjustment in OpenCode's
 durable plugin storage and restores it on the next launch. If you set a valid
-`"speed": 1.1` in the plugin's options, that value takes precedence whenever the
+`"speed": 1.25` in the plugin's options, that value takes precedence whenever the
 plugin loads. Adjustments still work while OpenCode is open, but are temporary
 and return to the configured value on reload or restart. Removing the option
 restores the previously remembered speed, if any.

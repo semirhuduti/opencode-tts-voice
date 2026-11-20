@@ -1,6 +1,6 @@
 import { DEFAULT_CONFIG } from "./voice-constants.js"
 import { normalizeFileExtensions } from "./voice-sanitize.js"
-import { isValidVoiceSpeed } from "./voice-speed.js"
+import { isValidVoiceSpeed, normalizeVoiceSpeed } from "./voice-speed.js"
 import type {
   DevicePreference,
   KokoroDType,
@@ -136,7 +136,7 @@ export function resolveVoiceConfig(options: VoicePluginOptions | undefined): Voi
 
   return {
     voice: readString(input.voice, DEFAULT_CONFIG.voice),
-    speed: isValidVoiceSpeed(input.speed) ? input.speed : DEFAULT_CONFIG.speed,
+    speed: isValidVoiceSpeed(input.speed) ? normalizeVoiceSpeed(input.speed) : DEFAULT_CONFIG.speed,
     device: readDevice(input.device),
     dtype: readDType(input.dtype),
     model: readString(input.model, DEFAULT_CONFIG.model),
