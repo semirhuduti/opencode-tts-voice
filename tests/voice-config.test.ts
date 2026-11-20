@@ -91,8 +91,8 @@ describe("resolveVoiceConfig", () => {
     expect(config.speakQuestions).toBe(true)
   })
 
-  it("defaults sentence pauses to 300 milliseconds", () => {
-    expect(resolveVoiceConfig(undefined).sentencePauseMs).toBe(300)
+  it("defaults sentence pauses to 100 milliseconds", () => {
+    expect(resolveVoiceConfig(undefined).sentencePauseMs).toBe(100)
   })
 
   it("defaults and overrides the history shortcut", () => {

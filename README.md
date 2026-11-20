@@ -196,7 +196,7 @@ Use a test project while validating the migration.
 | `trimSilenceThreshold` | number | `0.001` | Silence threshold used when trimming generated chunks. |
 | `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
 | `normalPauseMs` | number | `240` | Pause added after normal chunks. |
-| `sentencePauseMs` | number | `300` | Pause added after sentence, clause, or newline-ending chunks. |
+| `sentencePauseMs` | number | `100` | Pause added after sentence, clause, or newline-ending chunks. |
 | `ttsServiceCommand` | string | Resolved Node or Bun runtime | Optional command used to start the TTS helper service. Use this only when wrapping the helper with OS resource controls. |
 | `ttsServiceArgs` | string or string[] | `['{helper}']` | Optional helper service arguments. `{helper}` expands to the bundled helper script, and `{runtime}` expands to the Node or Bun executable used for the helper. |
 | `shortcuts.history` | string | `f5` | TUI shortcut for opening the previous assistant message picker. Enter plays the selected message, and shift return plays from the selected message forward. |

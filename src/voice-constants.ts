@@ -26,7 +26,7 @@ export const DEFAULT_CONFIG: VoiceConfig = {
   trimSilenceThreshold: 0.001,
   leadingAudioPadMs: 12,
   normalPauseMs: 240,
-  sentencePauseMs: 300,
+  sentencePauseMs: 100,
   ttsServiceCommand: undefined,
   ttsServiceArgs: undefined,
   shortcuts: {
