@@ -74,6 +74,7 @@ To use the plugin in every project instead, add the same entry to your global
 | **F6** | Pause or resume speech. When idle, replay the latest assistant response. |
 | **F7** | Replay the latest completed assistant response from the beginning. |
 | **F8** | Enable or disable speech. |
+| **Ctrl+F9** | Open the voice shortcut menu. |
 
 On a MacBook, hold **Fn** (or the globe key) if the function keys control
 hardware features instead.
@@ -81,6 +82,11 @@ hardware features instead.
 In the history picker, select a message and press **Enter** to play it, or
 **Shift+Enter** to play it and the later messages. Press **Escape** to close
 the picker. Selecting a message enables speech if it was off.
+
+The **Ctrl+F9** menu shows the shortcuts for the four voice actions. Use the
+up and down arrows to select an action and **Enter** to run it, or **Escape**
+to close the menu without running anything. On a MacBook, you may need
+**Ctrl+Fn+F9**.
 
 ## Voice status and commands
 

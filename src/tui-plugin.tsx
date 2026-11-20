@@ -3,6 +3,7 @@ import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createSignal, onCleanup } from "solid-js"
 import { VoiceCommands } from "./commands/voice-commands.js"
+import { openVoiceMenu } from "./commands/voice-menu.js"
 import { LatestMessageStore } from "./latest/latest-message-store.js"
 import { PlaybackPipeline } from "./playback/playback-pipeline.js"
 import { SessionStore } from "./session/session-store.js"
@@ -147,15 +148,23 @@ export default Plugin.define({
       if (selected && route.current.params?.sessionID === sessionID) await commands.playHistory(selected, "single", sessionID)
     }
 
+    const voiceActions = {
+      history: openHistory,
+      pause: async () => { await commands.togglePlayback() },
+      latest: async () => { await commands.replayLatest() },
+      toggle: () => commands.toggleEnabled(),
+    }
+
     api.keymap.layer(() => ({
       mode: "global",
       commands: [
-        { id: "tts.history", title: "Replay previous assistant message", group: "Voice", bind: config.shortcuts.history, palette: true, run: openHistory },
-        { id: "tts.play-pause", title: "Play or pause speech", group: "Voice", bind: config.shortcuts.pause, palette: true, run: async () => { await commands.togglePlayback() } },
-        { id: "tts.latest", title: "Replay latest assistant message", group: "Voice", bind: config.shortcuts.skipLatest, palette: true, run: async () => { await commands.replayLatest() } },
-        { id: "tts.toggle", title: "Toggle speech", group: "Voice", bind: config.shortcuts.toggle, palette: true, run: () => commands.toggleEnabled() },
+        { id: "tts.history", title: "Replay previous assistant message", group: "Voice", bind: config.shortcuts.history, palette: true, run: voiceActions.history },
+        { id: "tts.play-pause", title: "Play or pause speech", group: "Voice", bind: config.shortcuts.pause, palette: true, run: voiceActions.pause },
+        { id: "tts.latest", title: "Replay latest assistant message", group: "Voice", bind: config.shortcuts.skipLatest, palette: true, run: voiceActions.latest },
+        { id: "tts.toggle", title: "Toggle speech", group: "Voice", bind: config.shortcuts.toggle, palette: true, run: voiceActions.toggle },
+        { id: "tts.shortcuts", title: "Voice shortcuts", group: "Voice", bind: "ctrl+f9", palette: true, run: () => openVoiceMenu(api, voiceActions, () => disposed) },
       ],
-      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle"],
+      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle", "tts.shortcuts"],
     }))
     const removeHome = api.ui.slot({ append: "home.footer.status", render: () => <Status state={stateStore} api={api} /> })
     const removeSession = api.ui.slot({ append: "prompt.footer.status", render: () => <Status state={stateStore} api={api} /> })
