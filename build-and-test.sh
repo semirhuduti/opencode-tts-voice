@@ -1,7 +1,7 @@
 #!/bin/sh
 
 echo "Running NPM install..."
-npm ci
+npm install
 
 echo "Building the project..."
 npm run build
