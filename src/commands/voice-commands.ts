@@ -67,7 +67,7 @@ export class VoiceCommands {
     await this.replayLatest(sessionID)
   }
 
-  async replayLatest(sessionID?: string) {
+  async replayLatest(sessionID?: string): Promise<boolean> {
     this.log.info("replay latest requested", { sessionID: sessionID ?? this.activeSessionID() })
     if (!this.state.snapshot().enabled) {
       this.toast({ variant: "warning", message: "Speech is disabled" })
@@ -84,7 +84,7 @@ export class VoiceCommands {
       return false
     }
 
-    const latest = this.latestStore.replayText(active)
+    const latest = await this.latestStore.replayText(active)
     if (!latest.text) {
       this.log.warn("replay latest unavailable", { sessionID: active })
       this.toast({ variant: "warning", message: "No assistant message available" })

@@ -1,344 +1,182 @@
 /** @jsxImportSource @opentui/solid */
-
-import type { TuiDialogSelectOption, TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import type { ColorInput, KeyEvent } from "@opentui/core"
-import { useKeyboard } from "@opentui/solid"
-import { createEffect, createSignal, onCleanup } from "solid-js"
+import { Plugin } from "@opencode/plugin/tui"
+import type { Context } from "@opencode/plugin/tui/context"
+import { createSignal, onCleanup } from "solid-js"
 import { VoiceCommands } from "./commands/voice-commands.js"
-import { LatestMessageStore, type AssistantHistoryEntry } from "./latest/latest-message-store.js"
-import { MessageStore } from "./messages/message-store.js"
+import { LatestMessageStore } from "./latest/latest-message-store.js"
 import { PlaybackPipeline } from "./playback/playback-pipeline.js"
 import { SessionStore } from "./session/session-store.js"
 import { IdleController } from "./session/idle-controller.js"
 import { QuestionController } from "./session/question-controller.js"
 import { TimerRegistry } from "./shared/timer-registry.js"
-import { activeSessionID } from "./shared/voice-utils.js"
 import { VoiceStateStore } from "./state/voice-state-store.js"
 import { StreamingController } from "./streaming/streaming-controller.js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { createLogger } from "./voice-log.js"
+import { VoiceRpc } from "./voice-rpc.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
 const log = createLogger("plugin")
-const ACTION_GAP = " "
-const HOTKEY = "#ff9d00"
-const ACTION_ICON = "#4da3ff"
-const TOGGLE_OFF = "#808080"
-const ERROR_ICON = "#ff5c57"
-const SPINNER_INTERVAL_MS = 90
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-function stopKey(event: KeyEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-}
-
-function formatHistoryTimestamp(created: number) {
-  const date = new Date(created)
-  if (Number.isNaN(date.getTime())) return "--:--"
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-}
-
-function ShortcutChip(props: {
-  keyLabel: string
-  label: string
-  icon: string
-  iconColor?: ColorInput
-}) {
+function Status(props: { state: VoiceStateStore; api: Context }) {
+  const [state, setState] = createSignal(props.state.snapshot())
+  onCleanup(props.state.subscribe(() => setState(props.state.snapshot())))
   return (
-    <span>
-      [<span style={{ fg: HOTKEY }}>{props.keyLabel}</span> {props.label} <span style={{ fg: props.iconColor ?? ACTION_ICON }}>{props.icon}</span>]
-    </span>
+    <text fg={props.api.theme.text.muted}>
+      {state().error ? "[! voice error]" : state().enabled ? "[voice on]" : "[voice off]"}
+    </text>
   )
 }
 
-function ShortcutManager(props: {
-  api: TuiPluginApi
-  keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
-}) {
-  useKeyboard((event) => {
-    if (event.defaultPrevented) return
-    if (props.api.ui.dialog.open) return
-
-    if (props.keybinds.match("toggle", event)) {
-      log.info("keyboard toggle", { key: props.keybinds.print("toggle") })
-      event.preventDefault()
-      event.stopPropagation()
-      props.api.command.trigger("tts.toggle")
-      return
-    }
-
-    if (props.keybinds.match("pause", event)) {
-      log.info("keyboard pause", { key: props.keybinds.print("pause") })
-      event.preventDefault()
-      event.stopPropagation()
-      props.api.command.trigger("tts.play-pause")
-      return
-    }
-
-    if (props.keybinds.match("history", event)) {
-      log.info("keyboard history", { key: props.keybinds.print("history") })
-      event.preventDefault()
-      event.stopPropagation()
-      props.api.command.trigger("tts.history")
-      return
-    }
-
-    if (props.keybinds.match("skipLatest", event)) {
-      log.info("keyboard latest", { key: props.keybinds.print("skipLatest") })
-      event.preventDefault()
-      event.stopPropagation()
-      props.api.command.trigger("tts.latest")
-    }
-  })
-
-  return null
-}
-
-function ShortcutHint(props: {
-  api: TuiPluginApi
-  stateStore: VoiceStateStore
-  latestStore: LatestMessageStore
-  keybinds: ReturnType<TuiPluginApi["keybind"]["create"]>
-}) {
-  const [state, setState] = createSignal(props.stateStore.snapshot())
-  const [hasHistory, setHasHistory] = createSignal(false)
-  const [spinnerFrame, setSpinnerFrame] = createSignal(0)
-  const unsubscribe = props.stateStore.subscribe(() => setState(props.stateStore.snapshot()))
-  const unsubscribeHistory = props.latestStore.onHistoryChanged((sessionID) => {
-    if (sessionID !== activeSessionID(props.api.route.current)) return
-    void props.latestStore.collectDisplayHistory(sessionID, 1).then((entries) => setHasHistory(entries.length > 0))
-  })
-  onCleanup(unsubscribe)
-  onCleanup(unsubscribeHistory)
-
-  createEffect(() => {
-    const sessionID = activeSessionID(props.api.route.current)
-    if (!sessionID) {
-      setHasHistory(false)
-      return
-    }
-    void props.latestStore.collectDisplayHistory(sessionID, 1).then((entries) => setHasHistory(entries.length > 0))
-  })
-
-  createEffect(() => {
-    if (!state().generating) {
-      setSpinnerFrame(0)
-      return
-    }
-
-    const timer = setInterval(() => {
-      setSpinnerFrame((frame) => (frame + 1) % SPINNER_FRAMES.length)
-    }, SPINNER_INTERVAL_MS)
-    onCleanup(() => clearInterval(timer))
-  })
-
-  const theme = () => props.api.theme.current
-  const playChip = () => <ShortcutChip keyLabel={props.keybinds.print("pause")} label="play" icon="▶" />
-  const pauseChip = () => <ShortcutChip keyLabel={props.keybinds.print("pause")} label="pause" icon="Ⅱ" />
-  const historyChip = () => <ShortcutChip keyLabel={props.keybinds.print("history")} label="history" icon="◷" />
-  const replayChip = () => <ShortcutChip keyLabel={props.keybinds.print("skipLatest")} label="replay" icon="↻" />
-  const errorChip = () => <span>[<span style={{ fg: ERROR_ICON }}>!</span> error]</span>
-  const toggleChip = () => {
-    const current = state()
-    return (
-      <ShortcutChip
-        keyLabel={props.keybinds.print("toggle")}
-        label={current.enabled ? "on" : "off"}
-        icon={current.enabled ? "●" : "○"}
-        iconColor={current.enabled ? theme().success : TOGGLE_OFF}
-      />
-    )
-  }
-  const content = () => {
-    const current = state()
-    const maybeHistory = () => hasHistory() ? <>{ACTION_GAP}{historyChip()}</> : null
-    if (current.error) return <>{errorChip()}{ACTION_GAP}{toggleChip()}</>
-    if (!current.enabled) return <>{toggleChip()}{maybeHistory()}</>
-    if (current.paused) return <>{playChip()}{maybeHistory()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
-    if (current.busy) {
-      return <>{current.generating && <span style={{ fg: ACTION_ICON }}>{SPINNER_FRAMES[spinnerFrame()]}</span>}{current.generating && ACTION_GAP}{pauseChip()}{maybeHistory()}{ACTION_GAP}{toggleChip()}</>
-    }
-
-    return <>{playChip()}{maybeHistory()}{ACTION_GAP}{replayChip()}{ACTION_GAP}{toggleChip()}</>
-  }
-
-  return <text fg={theme().textMuted}>{content()}</text>
-}
-
-function HistoryPickerDialog(props: {
-  api: TuiPluginApi
-  commands: VoiceCommands
-  sessionID: string
-  entries: AssistantHistoryEntry[]
-}) {
-  const options: TuiDialogSelectOption<string>[] = props.entries.map((entry) => ({
-    title: `${formatHistoryTimestamp(entry.created)} ${entry.preview}`,
-    value: entry.messageID,
-  }))
-  const [selectedMessageID, setSelectedMessageID] = createSignal(options[0]?.value)
-  const play = (messageID: string | undefined, mode: "single" | "continue") => {
-    if (!messageID) return
-    props.api.ui.dialog.clear()
-    void props.commands.playHistory(messageID, mode, props.sessionID)
-  }
-
-  useKeyboard((event) => {
-    if (event.defaultPrevented) return
-    if (event.name !== "return" || !event.shift) return
-
-    stopKey(event)
-    play(selectedMessageID(), "continue")
-  })
-
-  return (
-    <props.api.ui.DialogSelect
-      title="Assistant History - enter plays selected, shift+enter continues from selected"
-      options={options}
-      skipFilter
-      current={selectedMessageID()}
-      onMove={(option) => setSelectedMessageID(option.value)}
-      onSelect={(option) => play(option.value, "single")}
-    />
-  )
-}
-
-const tui: TuiPlugin = async (api, options) => {
-  const config = resolveVoiceConfig(options as VoicePluginOptions | undefined)
-  log.info("tui init", {
-    route: api.route.current.name,
-    audioPlayer: config.audioPlayer,
-    device: config.device,
-    speakResponses: config.speakResponses,
-  })
-  const timers = new TimerRegistry()
-  const stateStore = new VoiceStateStore(api.kv, config, timers)
-  const playback = new PlaybackPipeline(config, stateStore, timers, (toast) => api.ui.toast(toast))
-  const sessionStore = new SessionStore(api, config.speakSubagentResponses)
-  const messageStore = new MessageStore(api)
-  const latestStore = new LatestMessageStore(api, config, timers, sessionStore)
-  messageStore.onUpdated((message) => latestStore.onMessageUpdated(message))
-  const streaming = new StreamingController(api, config, stateStore, playback, sessionStore, messageStore, latestStore)
-  const idle = new IdleController(api, config, stateStore, playback, sessionStore)
-  const questions = new QuestionController(api, config, stateStore, playback, sessionStore)
-  const commands = new VoiceCommands(api.route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast(toast))
-  playback.start()
-  const shortcutKeys = api.keybind
-    ? api.keybind.create(
-        {
-          history: config.shortcuts.history,
-          pause: config.shortcuts.pause,
-          skipLatest: config.shortcuts.skipLatest,
-          toggle: config.shortcuts.toggle,
-        },
-        config.shortcuts,
-      )
-    : {
-        all: config.shortcuts,
-        get: (name: string) => config.shortcuts[name as keyof typeof config.shortcuts] ?? "",
-        match: (_name: string, _event: unknown) => false,
-        print: (name: string) => config.shortcuts[name as keyof typeof config.shortcuts] ?? "",
+export default Plugin.define({
+  id: PLUGIN_ID,
+  async setup(api) {
+    const config = resolveVoiceConfig(api.options as VoicePluginOptions)
+    const voice = api.client.rpc(VoiceRpc)
+    const location = api.location ?? api.data.location.default()
+    let enabled: boolean = true
+    let pendingUpdates = 0
+    let latestEvent: boolean | undefined
+    let onStateChanged: ((enabled: boolean) => void) | undefined
+    const removeStateListener = voice.events.on("stateChanged", (event) => {
+      if (event.location.directory !== location.directory) return
+      const next = (event.data as { enabled?: unknown }).enabled
+      if (typeof next !== "boolean") return
+      latestEvent = next
+      if (pendingUpdates > 0) return
+      onStateChanged?.(next)
+    })
+    try {
+      const result = await voice.getEnabled({}, { location })
+      if (typeof result !== "object" || result === null || !("enabled" in result) || typeof result.enabled !== "boolean") {
+        throw new Error("Invalid voice state response")
       }
+      enabled = latestEvent ?? result.enabled
+    } catch (error) {
+      removeStateListener()
+      log.error("voice state unavailable", { error: String(error) })
+      api.ui.toast.show({ variant: "error", message: "Voice server plugin unavailable" })
+      return
+    }
 
-  const openHistoryPicker = async () => {
-    const sessionID = activeSessionID(api.route.current)
-    if (!sessionID) return
+    const timers = new TimerRegistry()
+    let pendingState = Promise.resolve()
+    let disposed = false
+    let stateStore: VoiceStateStore
+    let playback: PlaybackPipeline
+    stateStore = new VoiceStateStore({
+      get: <T,>(_key: string, fallback: T): T => typeof fallback === "boolean" ? enabled as T : fallback,
+      set: <T,>(_key: string, value: T) => {
+        if (typeof value !== "boolean") return
+        enabled = value
+        latestEvent = undefined
+        pendingUpdates++
+        pendingState = pendingState.then(() => voice.setEnabled({ enabled: value }, { location })).then(() => undefined).catch(async (error) => {
+          log.warn("voice state update failed", { error: String(error) })
+          api.ui.toast.show({ variant: "error", message: "Could not save voice state" })
+          try {
+            if (disposed || pendingUpdates > 1) return
+            const saved = await voice.getEnabled({}, { location }) as { enabled: boolean }
+            if (disposed || pendingUpdates > 1) return
+            latestEvent = undefined
+            enabled = saved.enabled
+            if (!saved.enabled) await playback.reset(false)
+            stateStore.patch({ enabled: saved.enabled })
+          } catch (restoreError) {
+            log.warn("voice state recovery failed", { error: String(restoreError) })
+          }
+        }).finally(() => {
+          pendingUpdates--
+          if (!disposed && pendingUpdates === 0 && latestEvent !== undefined) onStateChanged?.(latestEvent)
+        })
+      },
+    }, config, timers)
+    playback = new PlaybackPipeline(config, stateStore, timers, (toast) => api.ui.toast.show(toast))
+    onStateChanged = (next) => {
+      enabled = next
+      if (!next && stateStore.snapshot().enabled) void playback.reset(false)
+      stateStore.patch({ enabled: next })
+    }
+    if (latestEvent !== undefined && latestEvent !== enabled) onStateChanged(latestEvent)
+    const sessionStore = new SessionStore(api, config.speakSubagentResponses)
+    const latestStore = new LatestMessageStore(api, config, sessionStore)
+    const streaming = new StreamingController(api, config, stateStore, playback, sessionStore)
+    const idle = new IdleController(api, config, stateStore, playback, sessionStore)
+    const questions = new QuestionController(api, config, stateStore, playback, sessionStore)
+    const removeIdleRefresh = api.data.on("session.idle", (event) => {
+      const current = api.ui.router.current()
+      if (current.type === "session" && current.sessionID === event.data.sessionID) latestStore.refresh(event.data.sessionID)
+    })
+    const route = {
+      get current(): { name: string; params?: Record<string, unknown> } {
+        const current = api.ui.router.current()
+        return current.type === "session"
+          ? { name: "session", params: { sessionID: current.sessionID } }
+          : { name: current.type }
+      },
+    }
+    const commands = new VoiceCommands(route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast.show(toast))
+    playback.start()
 
-    const entries = await commands.historyEntries(sessionID)
-    if (entries.length === 0) return
+    async function openHistory() {
+      const sessionID = route.current.params?.sessionID
+      if (typeof sessionID !== "string") return
+      const entries = await commands.historyEntries(sessionID)
+      if (disposed) return
+      if (route.current.params?.sessionID !== sessionID) return
+      if (!entries.length) {
+        api.ui.toast.show({ variant: "warning", message: "No assistant message available" })
+        return
+      }
+      const selected = await api.ui.dialog.select({
+        title: "Assistant history",
+        options: entries.map((entry) => ({ title: entry.preview, value: entry.messageID })),
+        actions: [{
+          bind: "shift+return",
+          title: "Play from selected",
+          onTrigger: (messageID) => {
+            api.ui.dialog.clear()
+            if (route.current.params?.sessionID === sessionID) {
+              void commands.playHistory(messageID, "continue", sessionID)
+            }
+          },
+        }],
+      })
+      if (disposed) return
+      if (selected && route.current.params?.sessionID === sessionID) await commands.playHistory(selected, "single", sessionID)
+    }
 
-    api.ui.dialog.setSize("large")
-    api.ui.dialog.replace(
-      () => (
-        <HistoryPickerDialog
-          api={api}
-          commands={commands}
-          sessionID={sessionID}
-          entries={entries}
-        />
-      ),
-      () => log.info("history picker closed", { sessionID }),
-    )
-  }
+    api.keymap.layer(() => ({
+      mode: "global",
+      commands: [
+        { id: "tts.history", title: "Replay previous assistant message", group: "Voice", bind: config.shortcuts.history, palette: true, run: openHistory },
+        { id: "tts.play-pause", title: "Play or pause speech", group: "Voice", bind: config.shortcuts.pause, palette: true, run: async () => { await commands.togglePlayback() } },
+        { id: "tts.latest", title: "Replay latest assistant message", group: "Voice", bind: config.shortcuts.skipLatest, palette: true, run: async () => { await commands.replayLatest() } },
+        { id: "tts.toggle", title: "Toggle speech", group: "Voice", bind: config.shortcuts.toggle, palette: true, run: () => commands.toggleEnabled() },
+      ],
+      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle"],
+    }))
+    const removeHome = api.ui.slot({ append: "home.footer.status", render: () => <Status state={stateStore} api={api} /> })
+    const removeSession = api.ui.slot({ append: "prompt.footer.status", render: () => <Status state={stateStore} api={api} /> })
 
-  if (api.command) {
-    api.command.register(() => [
-    {
-      title: "Toggle speech",
-      value: "tts.toggle",
-      category: "Voice",
-      keybind: shortcutKeys.get("toggle"),
-      onSelect: () => {
-        log.info("command selected", { command: "tts.toggle" })
-        void commands.toggleEnabled()
-      },
-    },
-    {
-      title: "Play or pause speech",
-      value: "tts.play-pause",
-      category: "Voice",
-      keybind: shortcutKeys.get("pause"),
-      onSelect: () => {
-        log.info("command selected", { command: "tts.play-pause" })
-        void commands.togglePlayback()
-      },
-    },
-    {
-      title: "Replay previous assistant message",
-      value: "tts.history",
-      category: "Voice",
-      keybind: shortcutKeys.get("history"),
-      onSelect: () => {
-        log.info("command selected", { command: "tts.history" })
-        void openHistoryPicker()
-      },
-    },
-    {
-      title: "Replay latest assistant message",
-      value: "tts.latest",
-      category: "Voice",
-      keybind: shortcutKeys.get("skipLatest"),
-      onSelect: () => {
-        log.info("command selected", { command: "tts.latest" })
-        void commands.replayLatest()
-      },
-    },
-  ])
-  }
-
-  api.slots.register({
-    slots: {
-      app() {
-        return <ShortcutManager api={api} keybinds={shortcutKeys} />
-      },
-      home_prompt_right() {
-        return <ShortcutHint api={api} stateStore={stateStore} latestStore={latestStore} keybinds={shortcutKeys} />
-      },
-      session_prompt_right() {
-        return <ShortcutHint api={api} stateStore={stateStore} latestStore={latestStore} keybinds={shortcutKeys} />
-      },
-    },
-  })
-
-  api.lifecycle.onDispose(() => {
-    log.info("tui dispose")
-    return (async () => {
+    return async () => {
+      disposed = true
+      removeHome()
+      removeSession()
+      removeStateListener()
+      removeIdleRefresh()
       streaming.dispose()
       idle.dispose()
       questions.dispose()
-      messageStore.dispose()
+      latestStore.dispose()
       sessionStore.dispose()
-      await playback.dispose()
-      stateStore.dispose()
-      timers.dispose()
-    })()
-  })
-}
-
-const plugin: TuiPluginModule & { id: string } = {
-  id: PLUGIN_ID,
-  tui,
-}
-
-export default plugin
+      try {
+        await playback.dispose()
+      } finally {
+        stateStore.dispose()
+        timers.dispose()
+      }
+    }
+  },
+})

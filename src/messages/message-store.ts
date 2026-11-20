@@ -1,5 +1,5 @@
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
-import type { Message } from "@opencode-ai/sdk/v2"
+import type { Context as TuiPluginApi } from "@opencode/plugin/tui/context"
+import type { SessionMessageInfo as Message } from "@opencode/client"
 import { createLogger } from "../voice-log.js"
 import { formatError } from "../shared/voice-utils.js"
 
@@ -14,8 +14,9 @@ export class MessageStore {
 
   constructor(private readonly api: TuiPluginApi) {
     this.cleanup.push(
-      api.event.on("message.updated", (event) => {
-        this.runEventTask("message.updated", this.onMessageUpdated(event.properties.info))
+      api.data.on("session.text.ended", (event) => {
+        const message = api.data.session.message.get(event.data.sessionID, event.data.assistantMessageID)
+        if (message) this.runEventTask("session.text.ended", this.onMessageUpdated(message))
       }),
     )
   }
@@ -31,7 +32,7 @@ export class MessageStore {
     const cached = this.messages.get(messageID)
     if (cached) return cached
 
-    const resolved = this.api.state.session.messages(sessionID).find((message) => message.id === messageID)
+    const resolved = this.api.data.session.message.get(sessionID, messageID)
     if (!resolved) {
       this.log.warn("message lookup failed", { sessionID, messageID })
     }
@@ -52,10 +53,8 @@ export class MessageStore {
     this.messages.set(message.id, message)
     this.log.info("message updated", {
       messageID: message.id,
-      sessionID: message.sessionID,
-      role: message.role,
+      role: message.type,
       completed,
-      summary: Boolean(message.summary),
     })
     for (const callback of this.callbacks) await callback(message)
   }

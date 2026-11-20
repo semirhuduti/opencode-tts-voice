@@ -1,4 +1,4 @@
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { Context as TuiPluginApi } from "@opencode/plugin/tui/context"
 import { createLogger } from "../voice-log.js"
 import { formatError } from "../shared/voice-utils.js"
 
@@ -21,11 +21,7 @@ export class SessionStore {
     private readonly api: TuiPluginApi,
     private readonly speakSubagentResponses: boolean,
   ) {
-    this.cleanup.push(
-      api.event.on("session.created", (event) => this.cacheSession(event.properties.sessionID, event.properties.info)),
-      api.event.on("session.updated", (event) => this.cacheSession(event.properties.sessionID, event.properties.info)),
-      api.event.on("session.deleted", (event) => this.forgetSession(event.properties.sessionID)),
-    )
+    this.cleanup.push(api.data.on("session.deleted", (event) => this.forgetSession(event.data.sessionID)))
   }
 
   onDeleted(callback: SessionDeletedCallback) {
@@ -90,20 +86,13 @@ export class SessionStore {
   private async fetchSessionParentID(sessionID: string) {
     try {
       const result = await this.api.client.session.get({ sessionID })
-      if (result.data) {
-        this.cacheSession(sessionID, result.data)
-        return result.data.parentID
-      }
-
-      this.log.warn("session lookup failed", {
-        sessionID,
-        error: result.error ? formatError(result.error) : undefined,
-      })
+      this.cacheSession(sessionID, { id: result.id, parentID: result.parentID ?? null })
+      return result.parentID
     } catch (error) {
       this.log.warn("session lookup failed", { sessionID, error: formatError(error) })
     }
 
-    this.sessionParents.set(sessionID, undefined)
-    return undefined
+    // A failed lookup must not turn an unknown child session into a root session.
+    return sessionID
   }
 }

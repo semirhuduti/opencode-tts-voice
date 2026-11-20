@@ -156,7 +156,7 @@ export class TtsHelperRuntime {
     child.stdin.end()
     setTimeout(() => {
       if (!child.killed) child.kill("SIGTERM")
-    }, 1000).unref()
+    }, 5000).unref()
   }
 
   private async send(message: HelperRequest) {

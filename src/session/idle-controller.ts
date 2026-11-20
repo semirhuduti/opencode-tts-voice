@@ -1,11 +1,11 @@
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { Context as TuiPluginApi } from "@opencode/plugin/tui/context"
 import { createLogger } from "../voice-log.js"
 import type { VoiceConfig } from "../voice-types.js"
 import { splitPlaybackText } from "../voice-text.js"
 import type { PlaybackPipeline } from "../playback/playback-pipeline.js"
 import type { SessionStore } from "./session-store.js"
 import type { VoiceStateStore } from "../state/voice-state-store.js"
-import { activeSessionID, formatError } from "../shared/voice-utils.js"
+import { formatError } from "../shared/voice-utils.js"
 
 export class IdleController {
   private readonly log = createLogger("idle")
@@ -19,7 +19,7 @@ export class IdleController {
     private readonly playback: PlaybackPipeline,
     private readonly sessionStore: SessionStore,
   ) {
-    this.cleanup.push(api.event.on("session.idle", (event) => this.runEventTask("session.idle", this.onSessionIdle(event.properties.sessionID))))
+    this.cleanup.push(api.data.on("session.idle", (event) => this.runEventTask("session.idle", this.onSessionIdle(event.data.sessionID))))
   }
 
   dispose() {
@@ -38,8 +38,12 @@ export class IdleController {
   private async onSessionIdle(sessionID: string) {
     if (!this.state.snapshot().enabled || !this.config.speakOnIdle || !this.config.speechBlocks.includes("idle")) return
     if (!(await this.sessionStore.shouldSpeakSession(sessionID))) return
-    const active = activeSessionID(this.api.route.current)
-    if (active && active !== sessionID) return
+    if (this.disposed || !this.state.snapshot().enabled) return
+    if (await this.sessionStore.sessionParentID(sessionID)) return
+    if (this.disposed || !this.state.snapshot().enabled) return
+    const route = this.api.ui.router.current()
+    const active = route.type === "session" ? route.sessionID : undefined
+    if (!active || active !== sessionID) return
 
     this.log.info("session idle announcement", { sessionID })
 

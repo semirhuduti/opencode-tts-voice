@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test"
 import { SessionStore } from "../../src/session/session-store.js"
 
-type Handler = (event: { properties: Record<string, never> }) => void
+type Handler = (event: { data: Record<string, never> }) => void
 
-function createApi(getSession: (sessionID: string) => Promise<{ data?: { id: string; parentID?: string }; error?: unknown }>) {
+function createApi(getSession: (sessionID: string) => Promise<{ id: string; parentID?: string }>) {
   const handlers = new Map<string, Handler>()
   return {
-    event: {
+    data: {
       on(name: string, handler: Handler) {
         handlers.set(name, handler)
         return () => handlers.delete(name)
@@ -25,7 +25,7 @@ describe("SessionStore", () => {
     let calls = 0
     const api = createApi(async (sessionID) => {
       calls += 1
-      return { data: { id: sessionID, parentID: "parent" } }
+      return { id: sessionID, parentID: "parent" }
     })
     const store = new SessionStore(api as never, false)
 
@@ -39,7 +39,7 @@ describe("SessionStore", () => {
   })
 
   it("allows subagents only when configured", async () => {
-    const api = createApi(async (sessionID) => ({ data: { id: sessionID, parentID: "parent" } }))
+    const api = createApi(async (sessionID) => ({ id: sessionID, parentID: "parent" }))
     const disabled = new SessionStore(api as never, false)
     const enabled = new SessionStore(api as never, true)
 
@@ -47,15 +47,15 @@ describe("SessionStore", () => {
     expect(await enabled.shouldSpeakSession("child")).toBe(true)
   })
 
-  it("falls back to treating lookup failures as top-level sessions", async () => {
-    const api = createApi(async () => ({ error: new Error("missing") }))
+  it("does not speak when a session lookup fails", async () => {
+    const api = createApi(async () => { throw new Error("missing") })
     const store = new SessionStore(api as never, false)
 
-    expect(await store.shouldSpeakSession("unknown")).toBe(true)
+    expect(await store.shouldSpeakSession("unknown")).toBe(false)
   })
 
   it("notifies deletion callbacks", () => {
-    const api = createApi(async (sessionID) => ({ data: { id: sessionID } }))
+    const api = createApi(async (sessionID) => ({ id: sessionID }))
     const store = new SessionStore(api as never, false)
     const deleted: string[] = []
     store.onDeleted((sessionID) => deleted.push(sessionID))

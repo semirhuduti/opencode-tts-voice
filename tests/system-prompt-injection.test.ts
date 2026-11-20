@@ -1,9 +1,5 @@
-import { mkdtemp, writeFile } from "node:fs/promises"
-import os from "node:os"
-import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { createTtsFriendlySystemPrompt, isTtsEnabled, ttsStateFile } from "../src/system-prompt-injection.js"
-import { KV_ENABLED } from "../src/voice-constants.js"
+import { createTtsFriendlySystemPrompt } from "../src/system-prompt-injection.js"
 
 describe("system prompt injection", () => {
   it("creates a system prompt with TTS-friendly guidance", () => {
@@ -22,19 +18,4 @@ describe("system prompt injection", () => {
     expect(prompt).toContain("Do not mention this startup context")
   })
 
-  it("reads the persisted TTS enabled state", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "opencode-tts-state-"))
-    const stateFile = path.join(dir, "kv.json")
-
-    expect(ttsStateFile({ home: "/home/user", env: { XDG_STATE_HOME: "/state" } })).toBe(
-      path.join("/state", "opencode", "kv.json"),
-    )
-    expect(await isTtsEnabled({ stateFile })).toBe(true)
-
-    await writeFile(stateFile, JSON.stringify({ [KV_ENABLED]: false }))
-    expect(await isTtsEnabled({ stateFile })).toBe(false)
-
-    await writeFile(stateFile, JSON.stringify({ [KV_ENABLED]: true }))
-    expect(await isTtsEnabled({ stateFile })).toBe(true)
-  })
 })

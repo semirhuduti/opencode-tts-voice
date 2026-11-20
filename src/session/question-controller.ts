@@ -1,7 +1,7 @@
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
-import type { QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { Context as TuiPluginApi } from "@opencode/plugin/tui/context"
+import type { FormInfo1 } from "@opencode/client"
 import type { PlaybackPipeline } from "../playback/playback-pipeline.js"
-import { activeSessionID, formatError } from "../shared/voice-utils.js"
+import { formatError } from "../shared/voice-utils.js"
 import type { VoiceStateStore } from "../state/voice-state-store.js"
 import { splitPlaybackText } from "../voice-text.js"
 import type { VoiceConfig } from "../voice-types.js"
@@ -22,7 +22,7 @@ export class QuestionController {
     private readonly sessionStore: SessionStore,
   ) {
     this.cleanup.push(
-      api.event.on("question.asked", (event) => this.runEventTask("question.asked", this.onQuestionAsked(event.properties))),
+      api.data.on("form.created", (event) => this.runEventTask("form.created", this.onQuestionAsked(event.data.form))),
     )
   }
 
@@ -40,7 +40,7 @@ export class QuestionController {
     })
   }
 
-  private async onQuestionAsked(request: QuestionRequest) {
+  private async onQuestionAsked(request: FormInfo1) {
     if (this.processedRequests.has(request.id)) return
     this.processedRequests.add(request.id)
 
@@ -49,22 +49,27 @@ export class QuestionController {
     const state = this.state.snapshot()
     if (!state.enabled || state.paused) return
 
-    const active = activeSessionID(this.api.route.current)
+    const route = this.api.ui.router.current()
+    const active = route.type === "session" ? route.sessionID : undefined
     if (!active || active !== request.sessionID) return
 
     const parentID = await this.sessionStore.sessionParentID(request.sessionID)
-    if (parentID) {
+    if (this.disposed || parentID || !this.state.snapshot().enabled || this.state.snapshot().paused) {
       this.log.debug("question skipped for subagent session", { sessionID: request.sessionID, parentID, requestID: request.id })
       return
     }
 
-    const questionTexts = request.questions
-      .map((question, index) => ({ index, text: question.question.trim() }))
+    const questionTexts = request.fields
+      .filter((field) => !("hidden" in field) || !field.hidden)
+      .filter((field) => !("when" in field) || !field.when?.length)
+      .map((field, index) => ({ index, text: (field.title ?? "").trim() }))
       .filter((question) => Boolean(question.text))
     if (questionTexts.length === 0) return
 
     const currentQuestion = questionTexts[0]
     const fullText = currentQuestion.text
+    const currentRoute = this.api.ui.router.current()
+    if (currentRoute.type !== "session" || currentRoute.sessionID !== request.sessionID) return
     const chunks = splitPlaybackText(currentQuestion.text, this.config).map((chunk) => ({
       ...chunk,
       questionIndex: currentQuestion.index,

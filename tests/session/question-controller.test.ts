@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test"
-import type { QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { FormInfo1 as QuestionRequest } from "@opencode/client"
 import type { QueueTrace } from "../../src/playback/queue.js"
 import { QuestionController } from "../../src/session/question-controller.js"
 import { DEFAULT_CONFIG } from "../../src/voice-constants.js"
 import type { VoiceConfig, VoiceState } from "../../src/voice-types.js"
 
-type Handler = (event: { properties: unknown }) => void
+type Handler = (event: { data: { form: QuestionRequest } }) => void
 
 type EnqueuedChunk = {
   text: string
@@ -18,11 +18,13 @@ function createRequest(overrides: Partial<QuestionRequest> = {}): QuestionReques
   return {
     id: "request-1",
     sessionID: "session-1",
-    questions: [
+    title: "Question",
+    fields: [
       {
-        question: "Should question prompts be spoken?",
-        header: "Speak prompts",
-        options: [{ label: "Yes", description: "Speak them" }],
+        type: "string",
+        key: "answer",
+        title: "Should question prompts be spoken?",
+        options: [{ value: "yes", label: "Yes", description: "Speak them" }],
       },
     ],
     ...overrides,
@@ -38,15 +40,16 @@ function createHarness(options: {
   const handlers = new Map<string, Handler>()
   const enqueued: EnqueuedChunk[] = []
   const api = {
-    event: {
+    data: {
       on(name: string, handler: Handler) {
         handlers.set(name, handler)
         return () => handlers.delete(name)
       },
     },
-    route: {
-      current: options.route ?? { name: "session", params: { sessionID: "session-1" } },
-    },
+    ui: { router: { current: () => {
+      const route = options.route ?? { name: "session", params: { sessionID: "session-1" } }
+      return route.name === "session" ? { type: "session", sessionID: route.params?.sessionID } : { type: "home" }
+    } } },
   }
   const state = {
     snapshot: () => ({
@@ -81,7 +84,7 @@ function createHarness(options: {
     controller,
     enqueued,
     async ask(request = createRequest()) {
-      handlers.get("question.asked")?.({ properties: request })
+      handlers.get("form.created")?.({ data: { form: request } })
       await Promise.resolve()
       await Promise.resolve()
     },
@@ -171,9 +174,9 @@ describe("QuestionController", () => {
 
     await harness.ask(
       createRequest({
-        questions: [
-          { question: "First question?", header: "First", options: [] },
-          { question: "Second question?", header: "Second", options: [] },
+        fields: [
+          { type: "string", key: "first", title: "First question?", options: [] },
+          { type: "string", key: "second", title: "Second question?", options: [] },
         ],
       }),
     )

@@ -29,6 +29,7 @@ export type ServiceState = {
   sequence: number
   disposed: boolean
   work: Promise<void>
+  cleanup?: Promise<void>
 }
 
 const logger = createLogger("helper-process")
@@ -165,20 +166,29 @@ async function generate(state: ServiceState, input: Extract<HelperRequest, { typ
   }
 }
 
-export async function cleanupServiceState(state: ServiceState) {
+export function cleanupServiceState(state: ServiceState) {
+  if (state.cleanup) return state.cleanup
   state.disposed = true
   if (state.active) state.active.cancelled = true
-  const dir = state.tempDir
-  state.tempDir = undefined
-  if (dir) {
-    const value = await dir.catch(() => undefined)
-    if (value) await fs.rm(value, { recursive: true, force: true }).catch(() => undefined)
-  }
+  state.cleanup = (async () => {
+    await state.work.catch(() => undefined)
+    try {
+      await state.runtime?.dispose()
+    } finally {
+      state.runtime = undefined
+      const dir = state.tempDir
+      state.tempDir = undefined
+      if (dir) {
+        const value = await dir.catch(() => undefined)
+        if (value) await fs.rm(value, { recursive: true, force: true }).catch(() => undefined)
+      }
+    }
+  })()
+  return state.cleanup
 }
 
-async function cleanup(exitProcess: boolean) {
+async function cleanup() {
   await cleanupServiceState(service)
-  if (exitProcess) process.exit(0)
 }
 
 export function handleServiceMessage(state: ServiceState, message: HelperRequest) {
@@ -201,9 +211,9 @@ export function handleServiceMessage(state: ServiceState, message: HelperRequest
   void cleanupServiceState(state)
 }
 
-async function handle(message: HelperRequest, exitProcess: boolean) {
+async function handle(message: HelperRequest) {
   if (message.type === "dispose") {
-    await cleanup(exitProcess)
+    await cleanup()
     return
   }
 
@@ -212,18 +222,39 @@ async function handle(message: HelperRequest, exitProcess: boolean) {
 
 async function main() {
   const lines = createInterface({ input: stdin })
-  for await (const line of lines) {
-    const text = line.trim()
-    if (!text) continue
-
-    try {
-      await handle(JSON.parse(text) as HelperRequest, true)
-    } catch (error) {
+  const stopInput = () => {
+    lines.close()
+    stdin.destroy()
+  }
+  const terminate = () => {
+    stopInput()
+    void cleanup().catch((error) => {
       send({ type: "error", error: formatError(error) })
+      process.exitCode = 1
+    })
+  }
+  process.once("SIGTERM", terminate)
+  try {
+    for await (const line of lines) {
+      const text = line.trim()
+      if (!text) continue
+
+      try {
+        const message = JSON.parse(text) as HelperRequest
+        await handle(message)
+        if (message.type === "dispose") break
+      } catch (error) {
+        send({ type: "error", error: formatError(error) })
+      }
+    }
+  } finally {
+    stopInput()
+    try {
+      await cleanup()
+    } finally {
+      process.removeListener("SIGTERM", terminate)
     }
   }
-
-  await cleanup(false)
 }
 
 function startWorkerMode() {
@@ -233,7 +264,7 @@ function startWorkerMode() {
   }
 
   addEventListener("message", (event: MessageEvent<HelperRequest>) => {
-    void handle(event.data, false).catch((error) => {
+    void handle(event.data).catch((error) => {
       send({ type: "error", error: formatError(error) })
     })
   })
@@ -245,13 +276,9 @@ function startProcessMode() {
   }
 
   logger.info("helper process mode started")
-  process.once("SIGTERM", () => {
-    void cleanup(true)
-  })
-
   void main().catch((error) => {
     send({ type: "error", error: formatError(error) })
-    process.exit(1)
+    process.exitCode = 1
   })
 }
 

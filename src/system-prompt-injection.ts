@@ -1,9 +1,3 @@
-import { readFile } from "node:fs/promises"
-import os from "node:os"
-import path from "node:path"
-import { KV_ENABLED } from "./voice-constants.js"
-
-const DEFAULT_TTS_ENABLED = true
 const TTS_FRIENDLY_SYSTEM_PROMPT = [
   "# TTS Friendly Responses",
   "Use these instructions when an OpenCode session is being listened to through text to speech or when the user asks for responses that are easier to understand aloud.",
@@ -24,34 +18,6 @@ const QUESTION_SEQUENCING_INSTRUCTIONS = [
   "If more information is still needed, wait for the user's answer before asking the next question in a new question tool call.",
   "Do not batch multiple questions into a single ask question tool call.",
 ].join("\n")
-
-export type TtsEnabledOptions = {
-  home?: string
-  stateFile?: string
-  env?: Pick<NodeJS.ProcessEnv, "XDG_STATE_HOME">
-}
-
-export function ttsStateFile(options?: TtsEnabledOptions) {
-  if (options?.stateFile) return options.stateFile
-
-  const home = options?.home ?? os.homedir()
-  const stateHome = options?.env?.XDG_STATE_HOME || process.env.XDG_STATE_HOME || (home ? path.join(home, ".local", "state") : undefined)
-  if (!stateHome) return
-  return path.join(stateHome, "opencode", "kv.json")
-}
-
-export async function isTtsEnabled(options?: TtsEnabledOptions) {
-  const file = ttsStateFile(options)
-  if (!file) return DEFAULT_TTS_ENABLED
-
-  try {
-    const data = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
-    return typeof data[KV_ENABLED] === "boolean" ? data[KV_ENABLED] : DEFAULT_TTS_ENABLED
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return DEFAULT_TTS_ENABLED
-    throw error
-  }
-}
 
 export function createTtsFriendlySystemPrompt() {
   return [

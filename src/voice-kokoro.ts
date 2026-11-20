@@ -5,9 +5,8 @@ type TransformDevice = "auto" | "cpu" | "gpu" | "cuda" | "dml" | "wasm" | "webgp
 
 type RuntimeStatus = Partial<Pick<VoiceState, "device" | "error">>
 
-const ORT_SYMBOL = Symbol.for("onnxruntime")
-
 type LoadedRuntime = {
+  dispose(): Promise<void>
   tts: {
     generate(text: string, input: { voice: string; speed: number }): Promise<{ data: Float32Array; sampling_rate: number }>
     stream(
@@ -50,7 +49,7 @@ function formatError(error: unknown) {
 async function prepareOnnxRuntime() {
   const ort = await import("onnxruntime-node")
   ;(ort.env as { logLevel?: string }).logLevel = "error"
-  ;(globalThis as Record<PropertyKey, unknown>)[ORT_SYMBOL] = ort
+  // Transformers detects the platform only when its global runtime override is absent.
 }
 
 async function loadKokoroModule() {
@@ -130,6 +129,13 @@ export class KokoroRuntime {
     })
   }
 
+  async dispose() {
+    const runtime = this.loaded ?? await this.loading?.catch(() => undefined)
+    this.loaded = undefined
+    this.loading = undefined
+    await runtime?.dispose()
+  }
+
   private async load() {
     if (this.loaded) return this.loaded
     if (this.loading) return this.loading
@@ -174,7 +180,7 @@ export class KokoroRuntime {
 
     this.onStatus({ device: "loading", error: undefined })
 
-    let lastError: unknown
+    const errors: string[] = []
     for (const device of unique(candidateDevices(this.config.device))) {
       this.logger.info("runtime init attempt", { device })
       try {
@@ -182,6 +188,7 @@ export class KokoroRuntime {
         this.logger.info("runtime init success", { device })
         this.onStatus({ device, error: undefined })
         return {
+          dispose: async () => { await tts.model.dispose() },
           tts: {
             generate: async (text, input) => {
               const audio = await tts.generate(text, input as Parameters<typeof tts.generate>[1])
@@ -207,7 +214,7 @@ export class KokoroRuntime {
           device,
         }
       } catch (error) {
-        lastError = error
+        errors.push(`${device}: ${formatError(error)}`)
         this.logger.warn("runtime init failed", {
           device,
           error: formatError(error),
@@ -215,6 +222,6 @@ export class KokoroRuntime {
       }
     }
 
-    throw new Error(`Failed to initialize Kokoro. ${formatError(lastError)}`)
+    throw new Error(`Failed to initialize Kokoro. ${errors.join("; ")}`)
   }
 }
