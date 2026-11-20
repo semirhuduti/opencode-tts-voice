@@ -56,13 +56,12 @@ function formatError(error: unknown) {
   return String(error)
 }
 
-function runtimeIdentity(config: VoiceConfig) {
+export function runtimeIdentity(config: VoiceConfig) {
   return JSON.stringify({
     model: config.model,
     dtype: config.dtype,
     device: config.device,
     voice: config.voice,
-    speed: config.speed,
     cacheDir: config.cacheDir,
     trimSilenceThreshold: config.trimSilenceThreshold,
     leadingAudioPadMs: config.leadingAudioPadMs,
@@ -135,7 +134,7 @@ async function generate(state: ServiceState, input: Extract<HelperRequest, { typ
     }
 
     const tts = runtimeFor(state, input.config)
-    for await (const segment of tts.stream(input.text)) {
+    for await (const segment of tts.stream(input.text, input.config.speed)) {
       if (isCancelled(state, request)) break
 
       const file = await writeAudioFile(state, segment.audio, segment.sampleRate, request)

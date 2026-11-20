@@ -87,6 +87,30 @@ describe("TtsHelperRuntime service process", () => {
     expect(segments).toEqual([{ text: "Hello", file: path.join(audioDir, "segment.wav") }])
   })
 
+  it("sends the current speed with each generation request", async () => {
+    const service = await writeServiceScript(`
+      import { createInterface } from "node:readline";
+      for await (const line of createInterface({ input: process.stdin })) {
+        const message = JSON.parse(line);
+        if (message.type === "generate") {
+          process.stdout.write(JSON.stringify({ type: "segment", id: message.id, epoch: message.epoch, text: String(message.config.speed), file: "audio.wav" }) + "\\n");
+          process.stdout.write(JSON.stringify({ type: "complete", id: message.id, epoch: message.epoch }) + "\\n");
+        }
+        if (message.type === "dispose") process.exit(0);
+      }
+    `)
+    const config = { ...DEFAULT_CONFIG, speed: 0.75, ttsServiceCommand: process.execPath, ttsServiceArgs: [service] }
+    const runtime = new TtsHelperRuntime(config, () => undefined, createLogger("test-helper"))
+    const speeds: string[] = []
+
+    for await (const segment of runtime.stream("First", 1)) speeds.push(segment.text)
+    config.speed = 1.25
+    for await (const segment of runtime.stream("Second", 1)) speeds.push(segment.text)
+    await runtime.dispose()
+
+    expect(speeds).toEqual(["0.75", "1.25"])
+  })
+
   it("fails pending streams when the service crashes", async () => {
     const service = await writeServiceScript(`process.exit(42);`)
     const runtime = new TtsHelperRuntime(

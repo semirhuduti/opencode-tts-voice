@@ -89,11 +89,11 @@ export class KokoroRuntime {
     }
   }
 
-  async *stream(text: string) {
+  async *stream(text: string, speed = this.config.speed) {
     this.logger.info("stream start", {
       textLength: text.length,
       voice: this.config.voice,
-      speed: this.config.speed,
+      speed,
     })
 
     const runtime = await this.load()
@@ -102,7 +102,7 @@ export class KokoroRuntime {
 
     for await (const audio of runtime.tts.stream(text, {
       voice: this.config.voice,
-      speed: this.config.speed,
+      speed,
     })) {
       segmentCount += 1
       totalSamples += audio.data.length

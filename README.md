@@ -1,5 +1,13 @@
 # @semirhuduti/opencode-tts-voice
 
+Thank you to the original author for this useful tool. I forked this to add some useful features for my own workflow.
+
+For a quick start guide see [QUICKSTART.md](QUICKSTART.md).
+
+Below this line, the original README is left as is.
+
+---
+
 Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support for controlling playback.
 
 ![alt text](demo.png)

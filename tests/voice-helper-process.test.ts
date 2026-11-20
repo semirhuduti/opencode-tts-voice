@@ -2,9 +2,15 @@ import { describe, expect, it } from "bun:test"
 import { promises as fs } from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { cleanupServiceState, createServiceState } from "../src/voice-helper-process.js"
+import { cleanupServiceState, createServiceState, runtimeIdentity } from "../src/voice-helper-process.js"
+import { DEFAULT_CONFIG } from "../src/voice-constants.js"
 
 describe("voice helper service state", () => {
+  it("reuses the same runtime when only speech speed changes", () => {
+    expect(runtimeIdentity({ ...DEFAULT_CONFIG, speed: 0.75 })).toBe(runtimeIdentity({ ...DEFAULT_CONFIG, speed: 1.25 }))
+    expect(runtimeIdentity({ ...DEFAULT_CONFIG, voice: "am_adam" })).not.toBe(runtimeIdentity(DEFAULT_CONFIG))
+  })
+
   it("removes the helper temp directory during cleanup", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-tts-service-test-"))
     const state = createServiceState()

@@ -16,16 +16,17 @@ import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { createLogger } from "./voice-log.js"
 import { VoiceRpc } from "./voice-rpc.js"
+import { adjustVoiceSpeed } from "./voice-speed.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
 const log = createLogger("plugin")
 
-function Status(props: { state: VoiceStateStore; api: Context }) {
+function Status(props: { state: VoiceStateStore; api: Context; speed: () => number }) {
   const [state, setState] = createSignal(props.state.snapshot())
   onCleanup(props.state.subscribe(() => setState(props.state.snapshot())))
   return (
     <text fg={props.api.theme.text.muted}>
-      {state().error ? "[! voice error]" : state().enabled ? "[voice on]" : "[voice off]"}
+      {`[${state().error ? "! sound error" : state().enabled ? "sound on" : "sound off"} - ${props.speed()}x - Ctrl+F9]`}
     </text>
   )
 }
@@ -119,6 +120,13 @@ export default Plugin.define({
     }
     const commands = new VoiceCommands(route, config, stateStore, playback, sessionStore, latestStore, (toast) => api.ui.toast.show(toast))
     playback.start()
+    const [speed, setSpeed] = createSignal(config.speed)
+    const adjustSpeed = (direction: -1 | 1) => {
+      const next = adjustVoiceSpeed(config.speed, direction)
+      config.speed = next
+      setSpeed(next)
+      api.ui.toast.show({ variant: "info", message: `Speech speed: ${next}x` })
+    }
 
     async function openHistory() {
       const sessionID = route.current.params?.sessionID
@@ -153,6 +161,8 @@ export default Plugin.define({
       pause: async () => { await commands.togglePlayback() },
       latest: async () => { await commands.replayLatest() },
       toggle: () => commands.toggleEnabled(),
+      slower: async () => { adjustSpeed(-1) },
+      faster: async () => { adjustSpeed(1) },
     }
 
     api.keymap.layer(() => ({
@@ -162,12 +172,14 @@ export default Plugin.define({
         { id: "tts.play-pause", title: "Play or pause speech", group: "Voice", bind: config.shortcuts.pause, palette: true, run: voiceActions.pause },
         { id: "tts.latest", title: "Replay latest assistant message", group: "Voice", bind: config.shortcuts.skipLatest, palette: true, run: voiceActions.latest },
         { id: "tts.toggle", title: "Toggle speech", group: "Voice", bind: config.shortcuts.toggle, palette: true, run: voiceActions.toggle },
+        { id: "tts.slower", title: "Slow down speech", group: "Voice", bind: "ctrl+f6", palette: true, run: voiceActions.slower },
+        { id: "tts.faster", title: "Speed up speech", group: "Voice", bind: "ctrl+f7", palette: true, run: voiceActions.faster },
         { id: "tts.shortcuts", title: "Voice shortcuts", group: "Voice", bind: "ctrl+f9", palette: true, run: () => openVoiceMenu(api, voiceActions, () => disposed) },
       ],
-      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle", "tts.shortcuts"],
+      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle", "tts.slower", "tts.faster", "tts.shortcuts"],
     }))
-    const removeHome = api.ui.slot({ append: "home.footer.status", render: () => <Status state={stateStore} api={api} /> })
-    const removeSession = api.ui.slot({ append: "prompt.footer.status", render: () => <Status state={stateStore} api={api} /> })
+    const removeHome = api.ui.slot({ append: "home.footer.status", render: () => <Status state={stateStore} api={api} speed={speed} /> })
+    const removeSession = api.ui.slot({ append: "prompt.footer.status", render: () => <Status state={stateStore} api={api} speed={speed} /> })
 
     return async () => {
       disposed = true

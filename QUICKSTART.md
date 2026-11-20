@@ -74,6 +74,8 @@ To use the plugin in every project instead, add the same entry to your global
 | **F6** | Pause or resume speech. When idle, replay the latest assistant response. |
 | **F7** | Replay the latest completed assistant response from the beginning. |
 | **F8** | Enable or disable speech. |
+| **Ctrl+F6** | Slow speech down by 0.25x. |
+| **Ctrl+F7** | Speed speech up by 0.25x. |
 | **Ctrl+F9** | Open the voice shortcut menu. |
 
 On a MacBook, hold **Fn** (or the globe key) if the function keys control
@@ -83,7 +85,7 @@ In the history picker, select a message and press **Enter** to play it, or
 **Shift+Enter** to play it and the later messages. Press **Escape** to close
 the picker. Selecting a message enables speech if it was off.
 
-The **Ctrl+F9** menu shows the shortcuts for the four voice actions. Use the
+The **Ctrl+F9** menu shows the shortcuts for the six voice actions. Use the
 up and down arrows to select an action and **Enter** to run it, or **Escape**
 to close the menu without running anything. On a MacBook, you may need
 **Ctrl+Fn+F9**.
@@ -92,9 +94,9 @@ to close the menu without running anything. On a MacBook, you may need
 
 Look in the OpenCode home or session footer for:
 
-- `[voice on]` — speech is enabled.
-- `[voice off]` — speech is disabled; press **F8** to enable it.
-- `[! voice error]` — speech encountered an error.
+- `[sound on - 1x - Ctrl+F9]` — speech is enabled at 1x speed.
+- `[sound off - 1x - Ctrl+F9]` — speech is disabled; press **F8** to enable it.
+- `[! sound error - 1x - Ctrl+F9]` — speech encountered an error.
 
 This checkout displays that status automatically; it does not display the
 shortcut chips shown in the older screenshot in `README.md`, and there is no
@@ -102,7 +104,7 @@ setting to switch between the two displays.
 
 To see the available voice commands, press **Ctrl+P** to open OpenCode's
 command palette and look for the **Voice** group. The palette contains the
-same history, play/pause, replay, and toggle actions as the shortcuts above.
+same history, play/pause, replay, toggle, and speed actions as the shortcuts above.
 
 ## Change the voice or speed
 
@@ -125,12 +127,14 @@ Use the object form of the plugin entry to set options. For example:
 
 Replace the existing string entry with this object; don't add a second entry
 for the same checkout. Speed defaults to `1`; values below `1` are slower and
-values above `1` are faster. Change the configuration to adjust it—there are
-no speed-adjustment shortcuts.
+values above `1` are faster. **Ctrl+F6** and **Ctrl+F7** adjust it by 0.25x,
+down to a minimum of 0.1x. The change applies to newly generated audio; audio
+already generated may finish at the previous speed. On plugin reload, the
+configured speed is restored.
 
 ## If you can't hear speech
 
-- Check that the footer says `[voice on]`; press **F8** if it says off.
+- Check that the footer says `sound on`; press **F8** if it says off.
 - Check macOS sound output and volume, and confirm a supported player such as
   `mpv` is installed. The plugin doesn't automatically select macOS `afplay`.
 - Run the audible audio test above. It tests generation and playback, but

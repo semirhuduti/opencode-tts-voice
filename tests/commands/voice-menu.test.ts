@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { openVoiceMenu } from "../../src/commands/voice-menu.js"
 
-type Action = "history" | "pause" | "latest" | "toggle"
+type Action = "history" | "pause" | "latest" | "toggle" | "slower" | "faster"
 type Menu = { title: string; options: Array<{ title: string; value: Action }> }
 
 function createHarness(selected: Action | undefined, disposed = false) {
@@ -14,6 +14,8 @@ function createHarness(selected: Action | undefined, disposed = false) {
         "tts.play-pause": ["F6"],
         "tts.latest": ["F7"],
         "tts.toggle": ["F8"],
+        "tts.slower": ["Ctrl+F6"],
+        "tts.faster": ["Ctrl+F7"],
       })[id] ?? [],
     },
     ui: {
@@ -30,13 +32,15 @@ function createHarness(selected: Action | undefined, disposed = false) {
     pause: async () => { invoked.push("pause") },
     latest: async () => { invoked.push("latest") },
     toggle: async () => { invoked.push("toggle") },
+    slower: async () => { invoked.push("slower") },
+    faster: async () => { invoked.push("faster") },
   }
   const run = () => openVoiceMenu(api as never, actions, () => disposed)
   return { run, invoked, get menu() { return menu } }
 }
 
 describe("voice shortcut menu", () => {
-  it("lists all four actions with their active shortcuts", async () => {
+  it("lists all six actions with their active shortcuts", async () => {
     const harness = createHarness(undefined)
 
     await harness.run()
@@ -47,11 +51,13 @@ describe("voice shortcut menu", () => {
       { title: "Play or pause speech  [F6]", value: "pause" },
       { title: "Replay latest assistant message  [F7]", value: "latest" },
       { title: "Enable or disable speech  [F8]", value: "toggle" },
+      { title: "Slow down speech  [Ctrl+F6]", value: "slower" },
+      { title: "Speed up speech  [Ctrl+F7]", value: "faster" },
     ])
     expect(harness.invoked).toEqual([])
   })
 
-  for (const action of ["history", "pause", "latest", "toggle"] as const) {
+  for (const action of ["history", "pause", "latest", "toggle", "slower", "faster"] as const) {
     it(`runs the selected ${action} action`, async () => {
       const harness = createHarness(action)
       await harness.run()

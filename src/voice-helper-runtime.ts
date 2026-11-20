@@ -113,7 +113,7 @@ export class TtsHelperRuntime {
     this.pending.set(request.id, request)
 
     try {
-      await this.send({ type: "generate", id: request.id, epoch, text, config: this.config })
+      await this.send({ type: "generate", id: request.id, epoch, text, config: { ...this.config } })
 
       while (!this.disposed) {
         const item = request.queue.shift()
