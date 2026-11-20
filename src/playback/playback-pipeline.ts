@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises"
 import { TtsHelperRuntime } from "../voice-helper-runtime.js"
+import { scalePauseForSpeed } from "../voice-speed.js"
 import { createLogger } from "../voice-log.js"
 import type { SpeechSource, VoiceConfig, VoiceState } from "../voice-types.js"
 import type { TimerRegistry } from "../shared/timer-registry.js"
@@ -303,7 +304,7 @@ export class PlaybackPipeline {
             sourceItemID: item.sourceItem.id,
             durationMs: item.durationMs,
           })
-          if (item.durationMs > 0) await this.timers.sleep(item.durationMs)
+          if (item.durationMs > 0) await this.timers.sleep(scalePauseForSpeed(item.durationMs, this.config.speed))
         } else {
           this.log.info("ready audio start", {
             readyAudioID: item.id,

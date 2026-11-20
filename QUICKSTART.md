@@ -129,8 +129,9 @@ Replace the existing string entry with this object; don't add a second entry
 for the same checkout. Speed defaults to `1`; values below `1` are slower and
 values above `1` are faster. **Ctrl+F6** and **Ctrl+F7** adjust it by 0.25x,
 down to a minimum of 0.1x. The change applies to newly generated audio; audio
-already generated may finish at the previous speed. On plugin reload, the
-configured speed is restored.
+already generated may finish at the previous speed. Pauses between chunks also
+shorten or lengthen with the speed. On plugin reload, the configured speed is
+restored.
 
 ## If you can't hear speech
 
