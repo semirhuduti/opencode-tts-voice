@@ -204,6 +204,11 @@ Use a test project while validating the migration.
 | `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
 | `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
 
+When `speed` is not configured, speed adjustments are remembered in OpenCode's
+durable plugin storage across restarts. An explicitly configured, valid `speed`
+takes precedence on each plugin load; adjustments remain temporary and do not
+replace the previously remembered speed.
+
 ## Limiting TTS CPU Usage
 
 The plugin starts Kokoro generation in a child service process. By default it launches the bundled helper directly. To apply operating-system limits to only speech generation, set `ttsServiceCommand` and `ttsServiceArgs` to wrap that helper process.

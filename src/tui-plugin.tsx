@@ -16,7 +16,7 @@ import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { createLogger } from "./voice-log.js"
 import { VoiceRpc } from "./voice-rpc.js"
-import { adjustVoiceSpeed } from "./voice-speed.js"
+import { createVoiceSpeedController } from "./voice-speed.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
 const log = createLogger("plugin")
@@ -62,6 +62,11 @@ export default Plugin.define({
       return
     }
 
+    const speedController = createVoiceSpeedController(api.options.speed, config.speed, api.storage, (error) => {
+      log.warn("voice speed update failed", { error: String(error) })
+      api.ui.toast.show({ variant: "error", message: "Could not save speech speed" })
+    })
+    config.speed = speedController.speed
     const timers = new TimerRegistry()
     let pendingState = Promise.resolve()
     let disposed = false
@@ -122,7 +127,7 @@ export default Plugin.define({
     playback.start()
     const [speed, setSpeed] = createSignal(config.speed)
     const adjustSpeed = (direction: -1 | 1) => {
-      const next = adjustVoiceSpeed(config.speed, direction)
+      const next = speedController.adjust(direction)
       config.speed = next
       setSpeed(next)
       api.ui.toast.show({ variant: "info", message: `Speech speed: ${next}x` })
@@ -193,6 +198,7 @@ export default Plugin.define({
       latestStore.dispose()
       sessionStore.dispose()
       try {
+        await speedController.flush()
         await playback.dispose()
       } finally {
         stateStore.dispose()

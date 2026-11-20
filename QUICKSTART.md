@@ -117,8 +117,7 @@ Use the object form of the plugin entry to set options. For example:
     {
       "package": "/absolute/path/to/opencode-tts-voice",
       "options": {
-        "voice": "af_heart",
-        "speed": 1.1
+        "voice": "af_heart"
       }
     }
   ]
@@ -130,8 +129,14 @@ for the same checkout. Speed defaults to `1`; values below `1` are slower and
 values above `1` are faster. **Ctrl+F6** and **Ctrl+F7** adjust it by 0.25x,
 down to a minimum of 0.1x. The change applies to newly generated audio; audio
 already generated may finish at the previous speed. Pauses between chunks also
-shorten or lengthen with the speed. On plugin reload, the configured speed is
-restored.
+shorten or lengthen with the speed.
+
+Without a `speed` option, the plugin remembers your last adjustment in OpenCode's
+durable plugin storage and restores it on the next launch. If you set a valid
+`"speed": 1.1` in the plugin's options, that value takes precedence whenever the
+plugin loads. Adjustments still work while OpenCode is open, but are temporary
+and return to the configured value on reload or restart. Removing the option
+restores the previously remembered speed, if any.
 
 ## If you can't hear speech
 
