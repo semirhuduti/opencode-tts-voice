@@ -102,7 +102,7 @@ export class TtsHelperRuntime {
     private readonly logger: VoiceLogger,
   ) {}
 
-  async *stream(text: string, epoch: number): AsyncGenerator<GeneratedSegment, void, void> {
+  async *stream(text: string, epoch: number, voice = this.config.voice): AsyncGenerator<GeneratedSegment, void, void> {
     const request: PendingRequest = {
       id: this.nextID++,
       epoch,
@@ -113,7 +113,7 @@ export class TtsHelperRuntime {
     this.pending.set(request.id, request)
 
     try {
-      await this.send({ type: "generate", id: request.id, epoch, text, config: { ...this.config } })
+      await this.send({ type: "generate", id: request.id, epoch, text, config: { ...this.config, voice } })
 
       while (!this.disposed) {
         const item = request.queue.shift()

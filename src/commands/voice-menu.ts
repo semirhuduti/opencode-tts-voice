@@ -1,6 +1,6 @@
 import type { Context } from "@opencode/plugin/tui/context"
 
-type VoiceAction = "history" | "pause" | "latest" | "toggle" | "slower" | "faster"
+type VoiceAction = "history" | "pause" | "latest" | "toggle" | "slower" | "faster" | "choose"
 type VoiceActionHandlers = Record<VoiceAction, () => Promise<void>>
 
 export async function openVoiceMenu(
@@ -9,6 +9,7 @@ export async function openVoiceMenu(
   isDisposed: () => boolean,
 ) {
   const entries: Array<{ value: VoiceAction; id: string; title: string }> = [
+    { value: "choose", id: "tts.choose-voice", title: "Choose voice" },
     { value: "history", id: "tts.history", title: "Open assistant message history" },
     { value: "pause", id: "tts.play-pause", title: "Play or pause speech" },
     { value: "latest", id: "tts.latest", title: "Replay latest assistant message" },

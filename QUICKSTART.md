@@ -85,7 +85,7 @@ In the history picker, select a message and press **Enter** to play it, or
 **Shift+Enter** to play it and the later messages. Press **Escape** to close
 the picker. Selecting a message enables speech if it was off.
 
-The **Ctrl+F9** menu shows the shortcuts for the six voice actions. Use the
+The **Ctrl+F9** menu shows the voice actions and their shortcuts. Use the
 up and down arrows to select an action and **Enter** to run it, or **Escape**
 to close the menu without running anything. On a MacBook, you may need
 **Ctrl+Fn+F9**.
@@ -96,6 +96,7 @@ Look in the OpenCode home or session footer for:
 
 - `[sound on - 1x - Ctrl+F9]` — speech is enabled at 1x speed.
 - `[sound off - 1x - Ctrl+F9]` — speech is disabled; press **F8** to enable it.
+- `[sound initializing - 1x - Ctrl+F9]` — the speech engine is loading.
 - `[! sound error - 1x - Ctrl+F9]` — speech encountered an error.
 
 This checkout displays that status automatically; it does not display the
@@ -105,6 +106,17 @@ setting to switch between the two displays.
 To see the available voice commands, press **Ctrl+P** to open OpenCode's
 command palette and look for the **Voice** group. The palette contains the
 same history, play/pause, replay, toggle, and speed actions as the shortcuts above.
+
+Choose **Choose voice** from the **Ctrl+F9** menu or command palette to open
+the voice picker. Type to search by name, accent, gender, or voice ID; use
+**Ctrl+O** to preview the highlighted voice and **Enter** to select it.
+Previews wait behind current speech and require speech to be enabled and
+unpaused. The selected voice applies to newly generated audio; audio already
+generated may still use the previous voice.
+
+If no `voice` option is configured, the plugin remembers your selection across
+launches. A configured `voice` takes precedence when the plugin loads; picker
+changes are temporary and do not replace the previously remembered selection.
 
 ## Change the voice or speed
 

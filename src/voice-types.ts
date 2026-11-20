@@ -80,7 +80,7 @@ export type VoiceState = {
   error?: string
 }
 
-export type SpeechSource = "stream" | "latest" | "history" | "idle" | "question"
+export type SpeechSource = "stream" | "latest" | "history" | "idle" | "question" | "preview"
 
 export type PreparedChunk = {
   text: string

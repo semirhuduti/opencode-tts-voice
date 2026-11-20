@@ -4,6 +4,7 @@ import type { Context } from "@opencode/plugin/tui/context"
 import { createSignal, onCleanup } from "solid-js"
 import { VoiceCommands } from "./commands/voice-commands.js"
 import { openVoiceMenu } from "./commands/voice-menu.js"
+import { openVoicePicker } from "./commands/voice-picker.js"
 import { LatestMessageStore } from "./latest/latest-message-store.js"
 import { PlaybackPipeline } from "./playback/playback-pipeline.js"
 import { SessionStore } from "./session/session-store.js"
@@ -11,12 +12,14 @@ import { IdleController } from "./session/idle-controller.js"
 import { QuestionController } from "./session/question-controller.js"
 import { TimerRegistry } from "./shared/timer-registry.js"
 import { VoiceStateStore } from "./state/voice-state-store.js"
+import { voiceStatusLabel } from "./state/voice-status.js"
 import { StreamingController } from "./streaming/streaming-controller.js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { createLogger } from "./voice-log.js"
 import { VoiceRpc } from "./voice-rpc.js"
 import { createVoiceSpeedController } from "./voice-speed.js"
+import { createVoiceSelectionController } from "./voice-selection.js"
 import type { VoicePluginOptions } from "./voice-types.js"
 
 const log = createLogger("plugin")
@@ -26,7 +29,7 @@ function Status(props: { state: VoiceStateStore; api: Context; speed: () => numb
   onCleanup(props.state.subscribe(() => setState(props.state.snapshot())))
   return (
     <text fg={props.api.theme.text.muted}>
-      {`[${state().error ? "! sound error" : state().enabled ? "sound on" : "sound off"} - ${props.speed()}x - Ctrl+F9]`}
+      {`[${voiceStatusLabel(state())} - ${props.speed()}x - Ctrl+F9]`}
     </text>
   )
 }
@@ -66,7 +69,12 @@ export default Plugin.define({
       log.warn("voice speed update failed", { error: String(error) })
       api.ui.toast.show({ variant: "error", message: "Could not save speech speed" })
     })
+    const selectionController = createVoiceSelectionController(api.options.voice, config.voice, api.storage, (error) => {
+      log.warn("voice selection update failed", { error: String(error) })
+      api.ui.toast.show({ variant: "error", message: "Could not save voice selection" })
+    })
     config.speed = speedController.speed
+    config.voice = selectionController.voice
     const timers = new TimerRegistry()
     let pendingState = Promise.resolve()
     let disposed = false
@@ -168,6 +176,13 @@ export default Plugin.define({
       toggle: () => commands.toggleEnabled(),
       slower: async () => { adjustSpeed(-1) },
       faster: async () => { adjustSpeed(1) },
+      choose: async () => {
+        await openVoicePicker(api, config.voice, (voiceID) => playback.previewVoice(voiceID), (voiceID) => {
+          if (!selectionController.select(voiceID)) return
+          config.voice = voiceID
+          api.ui.toast.show({ variant: "info", message: `Voice: ${voiceID}` })
+        }, () => disposed)
+      },
     }
 
     api.keymap.layer(() => ({
@@ -179,9 +194,10 @@ export default Plugin.define({
         { id: "tts.toggle", title: "Toggle speech", group: "Voice", bind: config.shortcuts.toggle, palette: true, run: voiceActions.toggle },
         { id: "tts.slower", title: "Slow down speech", group: "Voice", bind: "ctrl+f6", palette: true, run: voiceActions.slower },
         { id: "tts.faster", title: "Speed up speech", group: "Voice", bind: "ctrl+f7", palette: true, run: voiceActions.faster },
+        { id: "tts.choose-voice", title: "Choose voice", group: "Voice", palette: true, run: voiceActions.choose },
         { id: "tts.shortcuts", title: "Voice shortcuts", group: "Voice", bind: "ctrl+f9", palette: true, run: () => openVoiceMenu(api, voiceActions, () => disposed) },
       ],
-      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle", "tts.slower", "tts.faster", "tts.shortcuts"],
+      bindings: ["tts.history", "tts.play-pause", "tts.latest", "tts.toggle", "tts.slower", "tts.faster", "tts.choose-voice", "tts.shortcuts"],
     }))
     const removeHome = api.ui.slot({ append: "home.footer.status", render: () => <Status state={stateStore} api={api} speed={speed} /> })
     const removeSession = api.ui.slot({ append: "prompt.footer.status", render: () => <Status state={stateStore} api={api} speed={speed} /> })
@@ -198,7 +214,7 @@ export default Plugin.define({
       latestStore.dispose()
       sessionStore.dispose()
       try {
-        await speedController.flush()
+        await Promise.all([speedController.flush(), selectionController.flush()])
         await playback.dispose()
       } finally {
         stateStore.dispose()

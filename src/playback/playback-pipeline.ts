@@ -107,6 +107,23 @@ export class PlaybackPipeline {
     return events.length
   }
 
+  previewVoice(voice: string) {
+    const state = this.state.snapshot()
+    if (!state.enabled || state.paused) {
+      this.toast({ variant: "warning", message: "Enable and resume speech to preview a voice" })
+      return
+    }
+    const wasBusy = this.isBusy()
+    const events = this.queue.enqueuePreparedChunk(
+      "Hello! This is a preview of my voice.", 0, "preview", this.epoch, this.config.maxSpeechChunkChars,
+      { origin: "voice.preview" }, voice,
+    )
+    if (events.length) {
+      if (wasBusy) this.toast({ variant: "info", message: "Voice preview queued after current speech" })
+      this.notify()
+    }
+  }
+
   isBusy() {
     return Boolean(this.currentGenerate) || Boolean(this.currentPlay) || this.queue.readyAudio.length > 0 || this.queue.sourceItems.length > 0
   }
@@ -217,7 +234,7 @@ export class PlaybackPipeline {
       let segmentCount = 0
       let queuedPause = false
       try {
-        for await (const generated of this.runtime.stream(item.text, item.epoch)) {
+        for await (const generated of this.runtime.stream(item.text, item.epoch, item.voice)) {
           if (!(await this.waitForReadyAudioCapacity(current))) {
             await fs.unlink(generated.file).catch(() => undefined)
             break

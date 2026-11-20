@@ -34,6 +34,7 @@ export type QueueItem = {
   text: string
   pauseMs: number
   source: SpeechSource
+  voice?: string
   trace?: QueueTrace
 }
 
@@ -85,7 +86,7 @@ export class PlaybackQueue {
   private queueID = 0
   private readyAudioID = 0
 
-  enqueuePreparedChunk(text: string, pauseMs: number, source: SpeechSource, epoch: number, maxSpeechChunkChars: number, trace?: QueueTrace) {
+  enqueuePreparedChunk(text: string, pauseMs: number, source: SpeechSource, epoch: number, maxSpeechChunkChars: number, trace?: QueueTrace, voice?: string) {
     if (!text.trim()) return [] as PlaybackQueueEvent[]
     const events: PlaybackQueueEvent[] = []
     if (source === "stream") {
@@ -101,6 +102,7 @@ export class PlaybackQueue {
         text,
         pauseMs,
         source,
+        voice,
         trace,
       }
       this.sourceItems.push(item)

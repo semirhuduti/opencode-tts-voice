@@ -89,10 +89,10 @@ export class KokoroRuntime {
     }
   }
 
-  async *stream(text: string, speed = this.config.speed) {
+  async *stream(text: string, speed = this.config.speed, voice = this.config.voice) {
     this.logger.info("stream start", {
       textLength: text.length,
-      voice: this.config.voice,
+      voice,
       speed,
     })
 
@@ -101,7 +101,7 @@ export class KokoroRuntime {
     let totalSamples = 0
 
     for await (const audio of runtime.tts.stream(text, {
-      voice: this.config.voice,
+      voice,
       speed,
     })) {
       segmentCount += 1
@@ -149,7 +149,7 @@ export class KokoroRuntime {
       .catch((error) => {
         this.loading = undefined
         this.logger.error("runtime load failed", { error: formatError(error) })
-        this.onStatus({ error: formatError(error) })
+        this.onStatus({ device: this.config.device, error: formatError(error) })
         throw error
       })
 
@@ -157,6 +157,7 @@ export class KokoroRuntime {
   }
 
   private async create(): Promise<LoadedRuntime> {
+    this.onStatus({ device: "loading", error: undefined })
     this.logger.info("runtime import start", {
       model: this.config.model,
       dtype: this.config.dtype,
@@ -177,8 +178,6 @@ export class KokoroRuntime {
         dtype: this.config.dtype,
         device,
       } as KokoroLoaderOptions as Parameters<typeof KokoroTTS.from_pretrained>[1])
-
-    this.onStatus({ device: "loading", error: undefined })
 
     const errors: string[] = []
     for (const device of unique(candidateDevices(this.config.device))) {

@@ -111,6 +111,28 @@ describe("TtsHelperRuntime service process", () => {
     expect(speeds).toEqual(["0.75", "1.25"])
   })
 
+  it("sends a preview voice without changing the configured voice", async () => {
+    const service = await writeServiceScript(`
+      import { createInterface } from "node:readline";
+      for await (const line of createInterface({ input: process.stdin })) {
+        const message = JSON.parse(line);
+        if (message.type === "generate") {
+          process.stdout.write(JSON.stringify({ type: "segment", id: message.id, epoch: message.epoch, text: message.config.voice, file: "audio.wav" }) + "\\n");
+          process.stdout.write(JSON.stringify({ type: "complete", id: message.id, epoch: message.epoch }) + "\\n");
+        }
+        if (message.type === "dispose") process.exit(0);
+      }
+    `)
+    const config = { ...DEFAULT_CONFIG, ttsServiceCommand: process.execPath, ttsServiceArgs: [service] }
+    const runtime = new TtsHelperRuntime(config, () => undefined, createLogger("test-helper"))
+    const voices: string[] = []
+    for await (const segment of runtime.stream("Preview", 1, "bf_emma")) voices.push(segment.text)
+    for await (const segment of runtime.stream("Normal", 1)) voices.push(segment.text)
+    await runtime.dispose()
+    expect(voices).toEqual(["bf_emma", "af_heart"])
+    expect(config.voice).toBe("af_heart")
+  })
+
   it("fails pending streams when the service crashes", async () => {
     const service = await writeServiceScript(`process.exit(42);`)
     const runtime = new TtsHelperRuntime(

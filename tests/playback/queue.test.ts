@@ -46,4 +46,12 @@ describe("PlaybackQueue", () => {
 
     expect(events.some((event) => event.type === "enqueued" && Boolean(event.duplicate))).toBe(true)
   })
+
+  it("retains a preview voice independently of ordinary queued speech", () => {
+    const queue = new PlaybackQueue()
+    queue.enqueuePreparedChunk("Existing response", 0, "stream", 0, 100)
+    queue.enqueuePreparedChunk("Preview", 0, "preview", 0, 100, { origin: "voice.preview" }, "bf_emma")
+    expect(queue.takeSourceItem()?.voice).toBeUndefined()
+    expect(queue.takeSourceItem()?.voice).toBe("bf_emma")
+  })
 })

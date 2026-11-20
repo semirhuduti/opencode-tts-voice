@@ -209,6 +209,14 @@ durable plugin storage across restarts. An explicitly configured, valid `speed`
 takes precedence on each plugin load; adjustments remain temporary and do not
 replace the previously remembered speed.
 
+The voice picker is available from the voice shortcut menu and the command
+palette. Search by name, accent, gender, or voice ID; use Ctrl+O to preview a
+highlighted voice and Enter to select it. Preview audio is queued after any
+current speech and requires speech to be enabled and unpaused. Without a
+configured `voice`, the selection is remembered across restarts. A configured
+`voice` takes precedence on each plugin load; picker selections are temporary
+and do not replace the previously remembered selection.
+
 ## Limiting TTS CPU Usage
 
 The plugin starts Kokoro generation in a child service process. By default it launches the bundled helper directly. To apply operating-system limits to only speech generation, set `ttsServiceCommand` and `ttsServiceArgs` to wrap that helper process.

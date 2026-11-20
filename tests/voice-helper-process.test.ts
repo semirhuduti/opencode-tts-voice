@@ -6,9 +6,9 @@ import { cleanupServiceState, createServiceState, runtimeIdentity } from "../src
 import { DEFAULT_CONFIG } from "../src/voice-constants.js"
 
 describe("voice helper service state", () => {
-  it("reuses the same runtime when only speech speed changes", () => {
+  it("reuses the same runtime when speech speed or voice changes", () => {
     expect(runtimeIdentity({ ...DEFAULT_CONFIG, speed: 0.75 })).toBe(runtimeIdentity({ ...DEFAULT_CONFIG, speed: 1.25 }))
-    expect(runtimeIdentity({ ...DEFAULT_CONFIG, voice: "am_adam" })).not.toBe(runtimeIdentity(DEFAULT_CONFIG))
+    expect(runtimeIdentity({ ...DEFAULT_CONFIG, voice: "am_adam" })).toBe(runtimeIdentity(DEFAULT_CONFIG))
   })
 
   it("removes the helper temp directory during cleanup", async () => {

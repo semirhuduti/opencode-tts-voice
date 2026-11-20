@@ -61,7 +61,6 @@ export function runtimeIdentity(config: VoiceConfig) {
     model: config.model,
     dtype: config.dtype,
     device: config.device,
-    voice: config.voice,
     cacheDir: config.cacheDir,
     trimSilenceThreshold: config.trimSilenceThreshold,
     leadingAudioPadMs: config.leadingAudioPadMs,
@@ -134,7 +133,7 @@ async function generate(state: ServiceState, input: Extract<HelperRequest, { typ
     }
 
     const tts = runtimeFor(state, input.config)
-    for await (const segment of tts.stream(input.text, input.config.speed)) {
+    for await (const segment of tts.stream(input.text, input.config.speed, input.config.voice)) {
       if (isCancelled(state, request)) break
 
       const file = await writeAudioFile(state, segment.audio, segment.sampleRate, request)
