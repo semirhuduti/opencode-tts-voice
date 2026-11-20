@@ -1,6 +1,6 @@
 # @semirhuduti/opencode-tts-voice
 
-Thank you to the original author for this useful tool. I forked this to add some useful features for my own workflow.
+Thank you to the original author for this useful tool. I forked this to add some features for my own workflow.
 
 For a quick start guide see [QUICKSTART.md](QUICKSTART.md).
 
