@@ -1,6 +1,6 @@
 {
   "name": "@scotteza/opencode-spoken-replies",
-  "version": "0.6.1-alpha.3",
+  "version": "1.0.0",
   "description": "Local Kokoro text-to-speech for OpenCode assistant replies",
   "keywords": [
     "opencode",
@@ -31,7 +31,8 @@
     "build": "tsc -p tsconfig.json && bun run ./scripts/build-tui.ts",
     "test": "bun test",
     "test:audio": "bun ./scripts/test-audio.mjs",
-    "prepublishOnly": "npm run build"
+    "publish:npm": "npm publish --access public",
+    "prepublishOnly": "npm run build && npm test"
   },
   "publishConfig": {
     "access": "public"

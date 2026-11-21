@@ -1,13 +1,21 @@
 #!/bin/sh
 
-echo "Running NPM install..."
-npm install
+run_step() {
+  label=$1
+  shift
 
-echo "Building the project..."
-npm run build
+  printf '\n==> %s\n' "$label"
+  "$@"
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf '\033[31mERROR: %s failed (exit code %s).\033[0m\n' "$label" "$status" >&2
+    exit "$status"
+  fi
+}
 
-echo "Running automated tests..."
-npm test
+run_step "Installing dependencies" npm install
+run_step "Building the project" npm run build
+run_step "Running automated tests" npm test
+run_step "Running the audio test with playback" env OPENCODE_TTS_TEST_PLAY=1 npm run test:audio
 
-echo "Running the audio test with playback..."
-OPENCODE_TTS_TEST_PLAY=1 npm run test:audio
+printf '\033[32mAll build and test steps passed.\033[0m\n'

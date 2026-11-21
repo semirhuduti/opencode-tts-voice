@@ -52,6 +52,20 @@ bun --version
 
 This is Bun's official installer. In WSL, it installs Bun in the Linux environment under `~/.bun` and adds it to your shell path; it does not install Bun for Windows. The version command should report Bun 1.3.14 or later. See the [official Bun installation guide](https://bun.sh/docs/installation) if `bun` is not found or you use a different shell.
 
+Use Linux Node.js and npm in WSL too. If `command -v npm` points into `/mnt/c/` (for example, to a Windows Node installation), install Node with Linux `nvm` so npm scripts can find WSL's Bun:
+
+```sh
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh | bash
+source ~/.bashrc # use ~/.zshrc if your WSL shell is zsh
+nvm install --lts
+nvm alias default 'lts/*'
+nvm use default
+command -v node
+command -v npm
+```
+
+The `node` and `npm` paths should be inside your WSL home directory, not under `/mnt/c/`. Then install the project dependencies and run the build and tests as shown below.
+
 ```sh
 npm install
 npm run build
