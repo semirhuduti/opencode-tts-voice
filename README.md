@@ -49,7 +49,7 @@ For project-only use, put this in that project's OpenCode config. For global use
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
     {
-      "package": "/absolute/path/to/opencode-tts-voice",
+      "package": "/absolute/path/to/opencode-spoken-replies",
       "options": {}
     }
   ]
@@ -178,6 +178,6 @@ Distributed under the MIT licence. See [LICENSE](LICENSE) for the licence text a
 
 ## Support
 
-Report issues and request changes in the [OpenCode Spoken Replies issue tracker](https://github.com/scotteza/opencode-tts-voice/issues).
+Report issues and request changes in the [OpenCode Spoken Replies issue tracker](https://github.com/scotteza/opencode-spoken-replies/issues).
 
 OpenCode's [ecosystem page](https://opencode.ai/docs/ecosystem/) is separate from npm distribution. The current page identifies itself as V1 documentation and says additions are made by pull request, so verify the V2 listing process before submitting; npm publication alone does not add the project there.

@@ -68,7 +68,7 @@ In the project where you want speech, create or edit `opencode.jsonc`:
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    "/absolute/path/to/opencode-tts-voice"
+    "/absolute/path/to/opencode-spoken-replies"
   ]
 }
 ```
@@ -102,7 +102,7 @@ OpenCode config, `~/.config/opencode/opencode.jsonc`:
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
     {
-      "package": "/absolute/path/to/opencode-tts-voice",
+      "package": "/absolute/path/to/opencode-spoken-replies",
       "options": {
         "device": "cpu"
       }
@@ -178,7 +178,7 @@ Use the object form of the plugin entry to set options. For example:
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
     {
-      "package": "/absolute/path/to/opencode-tts-voice",
+      "package": "/absolute/path/to/opencode-spoken-replies",
       "options": {
         "voice": "af_heart"
       }

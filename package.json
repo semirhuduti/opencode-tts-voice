@@ -43,11 +43,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/scotteza/opencode-tts-voice.git"
+    "url": "git+https://github.com/scotteza/opencode-spoken-replies.git"
   },
-  "homepage": "https://github.com/scotteza/opencode-tts-voice",
+  "homepage": "https://github.com/scotteza/opencode-spoken-replies",
   "bugs": {
-    "url": "https://github.com/scotteza/opencode-tts-voice/issues"
+    "url": "https://github.com/scotteza/opencode-spoken-replies/issues"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.5.1",
