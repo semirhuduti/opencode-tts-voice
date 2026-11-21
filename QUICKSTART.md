@@ -87,6 +87,37 @@ use `/reload` in OpenCode to force a reload if needed.
 To use the plugin in every project instead, add the same entry to your global
 `~/.config/opencode/opencode.jsonc`, preserving any existing settings.
 
+### Choose CPU or GPU per machine
+
+The plugin's `device` option controls where Kokoro runs. It defaults to `auto`,
+which lets the runtime choose an available backend. Set `"device": "cpu"` on a
+machine where CUDA is unavailable, such as a WSL setup without the ONNX Runtime
+CUDA provider. Leave the option unset on a machine where automatic GPU
+selection works, such as a Mac setup that already runs Kokoro on the GPU.
+
+To keep this choice out of the repository, set it in that machine's global
+OpenCode config, `~/.config/opencode/opencode.jsonc`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    {
+      "package": "/absolute/path/to/opencode-tts-voice",
+      "options": {
+        "device": "cpu"
+      }
+    }
+  ]
+}
+```
+
+Use the absolute path to the checkout as seen by that machine. On macOS, omit
+the `device` option to keep the default automatic selection. Do not add the CPU
+override to a tracked project config if the same project should use the GPU on
+another machine. Plugin entries from global and project configs are combined,
+so avoid registering the same checkout twice.
+
 ## Keyboard shortcuts
 
 | Key | Action |
