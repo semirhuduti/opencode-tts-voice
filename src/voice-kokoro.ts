@@ -50,11 +50,23 @@ function formatError(error: unknown) {
 async function prepareOnnxRuntime() {
   const ort = await import("onnxruntime-node")
   ;(ort.env as { logLevel?: string }).logLevel = "error"
-  // Transformers detects the platform only when its global runtime override is absent.
 }
 
 async function loadKokoroModule() {
-  return import("kokoro-js")
+  const runtimeSymbol = Symbol.for("onnxruntime")
+  const runtimeHost = globalThis as typeof globalThis & { [key: symbol]: unknown }
+  const hadRuntimeOverride = runtimeSymbol in runtimeHost
+  const runtimeOverride = runtimeHost[runtimeSymbol]
+
+  // Transformers' Node backend selects its supported devices during module
+  // initialization. A process-wide runtime override skips that setup, so hide it
+  // only while Transformers initializes, then restore it for the rest of OpenCode.
+  if (hadRuntimeOverride) delete runtimeHost[runtimeSymbol]
+  try {
+    return await import("kokoro-js")
+  } finally {
+    if (hadRuntimeOverride) runtimeHost[runtimeSymbol] = runtimeOverride
+  }
 }
 
 export class KokoroRuntime {
