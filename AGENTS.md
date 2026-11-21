@@ -5,8 +5,8 @@ This is an OpenCode text-to-speech plugin. See `AGENT.md` for project background
 ## Build and test
 
 - Run `npm run build`, `npm test`, and `npm pack --dry-run` without asking for approval.
-- When both checks are needed, use `sh build-and-test.sh`. It installs dependencies, builds the project, runs unit tests, and runs the audio test with playback enabled.
-- Never run `npm publish`, `npm run publish:npm`, or `publish-npm.sh`; npm publishing is explicitly prohibited.
+- When both checks are needed, use `sh scripts/build-and-test.sh`. It installs dependencies, builds the project, runs unit tests, and runs the audio test with playback enabled.
+- Never run `npm publish`, `npm run publish:npm`, or `scripts/publish-npm.sh`; npm publishing is explicitly prohibited.
 
 ## Git naming
 
