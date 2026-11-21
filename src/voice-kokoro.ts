@@ -21,23 +21,24 @@ function unique<Value>(values: Value[]) {
   return Array.from(new Set(values))
 }
 
-function candidateDevices(device: VoiceConfig["device"]): TransformDevice[] {
+export function candidateDevices(device: VoiceConfig["device"]): TransformDevice[] {
   switch (device) {
     case "cpu":
-      return ["cpu", "wasm"]
+      return ["cpu"]
     case "wasm":
-      return ["wasm", "cpu"]
+      // Transformers' Node backend does not accept "wasm" as a device.
+      return ["cpu"]
     case "webgpu":
-      return ["webgpu", "gpu", "cuda", "dml", "cpu", "wasm"]
+      return ["webgpu", "gpu", "cuda", "dml", "cpu"]
     case "gpu":
-      return ["gpu", "cuda", "dml", "webgpu", "cpu", "wasm"]
+      return ["gpu", "cuda", "dml", "webgpu", "cpu"]
     case "cuda":
-      return ["cuda", "gpu", "cpu", "wasm"]
+      return ["cuda", "gpu", "cpu"]
     case "dml":
-      return ["dml", "gpu", "cpu", "wasm"]
+      return ["dml", "gpu", "cpu"]
     case "auto":
     default:
-      return ["gpu", "cuda", "dml", "webgpu", "cpu", "wasm"]
+      return ["gpu", "cuda", "dml", "webgpu", "cpu"]
   }
 }
 
