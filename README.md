@@ -2,9 +2,9 @@
 
 OpenCode Spoken Replies lets OpenCode read assistant replies aloud as they arrive. Choose a voice, adjust the speed, and pause or replay speech from the terminal interface.
 
-This independently maintained fork builds on [opencode-tts-voice](https://github.com/semirhuduti/opencode-tts-voice). It is not maintained, endorsed, or supported by the original author.
+This independently maintained fork builds on [opencode-tts-voice](https://github.com/semirhuduti/opencode-tts-voice) from Semir Huduti. It is not maintained, endorsed, or supported by the original author.
 
-If you appreciate the original author's work, please [buy Semir Huduti a coffee](https://www.buymeacoffee.com/semirhuduti).
+If you appreciate the original author's work, please buy him a coffee using the link below .
 
 [![Buy Semir Huduti a coffee](https://cdn.buymeacoffee.com/buttons/default-orange.png)](https://www.buymeacoffee.com/semirhuduti)
 
