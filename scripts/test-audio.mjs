@@ -23,7 +23,8 @@ try {
 }
 
 const { DEFAULT_CONFIG } = await import("../src/voice-constants.ts")
-const config = { ...DEFAULT_CONFIG, device: "cpu" }
+const device = process.env.OPENCODE_TTS_TEST_DEVICE || "cpu"
+const config = { ...DEFAULT_CONFIG, device }
 const runtime = process.env.OPENCODE_TTS_TEST_NODE || "node"
 const child = spawn(runtime, [helper], {
   env: { ...process.env, OPENCODE_TTS_VOICE_HELPER_MODE: "process", OPENCODE_TTS_VOICE_LOG_LEVEL: "silent" },
@@ -104,4 +105,4 @@ try {
     }
   }
 }
-console.log(`Speech generation passed: ${segments} WAV segment(s) generated on CPU.`)
+console.log(`Speech generation passed: ${segments} WAV segment(s) generated with device "${device}".`)

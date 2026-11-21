@@ -1,6 +1,6 @@
 import type { VoiceConfig } from "./voice-types.js"
 
-export const PLUGIN_ID = "semirhuduti.tts.voice"
+export const PLUGIN_ID = "opencode-spoken-replies"
 export const KV_ENABLED = `${PLUGIN_ID}.enabled`
 export const DEFAULT_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX"
 

@@ -1,4 +1,5 @@
 import { Rpc } from "@opencode/plugin/rpc"
+import { PLUGIN_ID } from "./voice-constants.js"
 
 const state = {
   type: "object",
@@ -8,7 +9,7 @@ const state = {
 } as const
 
 export const VoiceRpc = Rpc.define({
-  id: "semirhuduti.tts.voice",
+  id: PLUGIN_ID,
   methods: {
     getEnabled: {
       input: { type: "object", additionalProperties: false },

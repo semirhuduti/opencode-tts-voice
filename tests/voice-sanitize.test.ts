@@ -131,7 +131,7 @@ This paragraph has ** bold text **, * italic text *, \`inline code\`, and a [lin
 | --- | --- | --- |
 | voice | Kokoro | TTS engine |
 | file | \`src/voice-controller.ts\` | local source |
-| path | \`/home/semir/workspace/opencode-voice-tts/src/voice-text.ts\` | absolute path |
+| path | \`/home/example/workspace/opencode-voice-tts/src/voice-text.ts\` | absolute path |
 
 \`\`\`ts
 function demo(value: string) {

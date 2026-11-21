@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs"
+import { createRequire } from "node:module"
+import * as path from "node:path"
 import type { VoiceConfig, VoiceState } from "./voice-types.js"
 import type { VoiceLogger } from "./voice-log.js"
 
@@ -39,6 +42,38 @@ export function candidateDevices(device: VoiceConfig["device"]): TransformDevice
     case "auto":
     default:
       return ["gpu", "cuda", "dml", "webgpu", "cpu"]
+  }
+}
+
+type AvailableProviders = {
+  cuda: boolean
+  dml: boolean
+  webgpu: boolean
+}
+
+export function filterCandidateDevices(devices: TransformDevice[], available: AvailableProviders) {
+  return unique(devices.filter((device) => {
+    if (device === "gpu") return available.cuda || available.dml || available.webgpu
+    if (device === "cuda") return available.cuda
+    if (device === "dml") return available.dml
+    if (device === "webgpu") return available.webgpu
+    if (device === "wasm") return false
+    return device === "cpu"
+  }))
+}
+
+function availableProviders(): AvailableProviders {
+  const require = createRequire(import.meta.url)
+  const runtimeEntry = require.resolve("onnxruntime-node")
+  const runtimePackage = path.resolve(path.dirname(runtimeEntry), "..")
+  const nativeDirectory = path.join(runtimePackage, "bin", "napi-v3", process.platform, process.arch)
+
+  return {
+    cuda: process.platform === "linux" && process.arch === "x64"
+      && existsSync(path.join(nativeDirectory, "libonnxruntime_providers_cuda.so")),
+    dml: process.platform === "win32" && existsSync(path.join(nativeDirectory, "DirectML.dll")),
+    // Transformers' Node backend doesn't support WebGPU.
+    webgpu: false,
   }
 }
 
@@ -193,7 +228,8 @@ export class KokoroRuntime {
       } as KokoroLoaderOptions as Parameters<typeof KokoroTTS.from_pretrained>[1])
 
     const errors: string[] = []
-    for (const device of unique(candidateDevices(this.config.device))) {
+    const devices = filterCandidateDevices(candidateDevices(this.config.device), availableProviders())
+    for (const device of devices) {
       this.logger.info("runtime init attempt", { device })
       try {
         const tts = await loadKokoro(device)
