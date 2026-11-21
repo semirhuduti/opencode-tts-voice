@@ -21,7 +21,7 @@ If you appreciate the original author's work, please [buy Semir Huduti a coffee]
 
 Requirements: OpenCode 2.3.2 or later in the 2.x line, an audio player on your `PATH` (`ffplay`, `mpv`, `paplay`, or `aplay`), and internet access for the initial model download. `mpv` is recommended.
 
-**The npm package is not published yet.** After publication, install it globally with:
+Install the published npm package with:
 
 ```sh
 opencode plugin add @scotteza/opencode-spoken-replies
