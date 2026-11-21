@@ -11,6 +11,27 @@ brew install node bun mpv
 This installs Node.js and npm, Bun, and the `mpv` audio player. The project
 requires Node.js 20.9 or newer. You also need OpenCode installed.
 
+### WSL (Ubuntu)
+
+In WSL, install the Linux tools with Ubuntu's package manager and the
+official Bun installer. Ubuntu's `nodejs` package may be older than the
+required Node.js 20.9, so install Node.js with `nvm`:
+
+This assumes you are using Bash as your shell. If you are using zsh, source `~/.zshrc` instead of `~/.bashrc` after installing `nvm`.
+
+```sh
+sudo apt update
+sudo apt install -y curl mpv
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh | bash
+source ~/.bashrc
+nvm install node
+curl -fsSL https://bun.com/install | bash
+```
+
+If you use a shell other than Bash, source the appropriate shell startup file
+after installing `nvm`. You also need OpenCode installed in the WSL
+environment. Run the build and tests below from your WSL checkout.
+
 ## Build and test
 
 From the root of this checkout:
