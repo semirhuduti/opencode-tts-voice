@@ -27,6 +27,30 @@ Install the published npm package with:
 opencode plugin add @scotteza/opencode-spoken-replies
 ```
 
+### Windows setup
+
+The TTS helper needs Node.js or Bun available to the OpenCode process. If OpenCode reports that it cannot find either runtime, install [Node.js](https://nodejs.org/en/download/) for Windows and enable the installer option to add Node to `PATH`. Then fully exit and restart OpenCode so it inherits the updated `PATH`. Verify Node is available in PowerShell with:
+
+```powershell
+node --version
+where.exe node
+```
+
+Windows also needs an audio player on `PATH`; install a Windows build of `ffplay` or `mpv`. If OpenCode still cannot find Node, set `ttsServiceCommand` in this plugin's `options` to the full path to `node.exe`, for example:
+
+```jsonc
+{
+  "plugins": [
+    {
+      "package": "@scotteza/opencode-spoken-replies",
+      "options": {
+        "ttsServiceCommand": "C:\\Program Files\\nodejs\\node.exe"
+      }
+    }
+  ]
+}
+```
+
 Or add it to the `plugins` array in your OpenCode `opencode.json` or `opencode.jsonc`:
 
 ```jsonc

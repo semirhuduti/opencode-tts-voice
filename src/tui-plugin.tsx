@@ -17,6 +17,7 @@ import { StreamingController } from "./streaming/streaming-controller.js"
 import { PLUGIN_ID } from "./voice-constants.js"
 import { resolveVoiceConfig } from "./voice-config.js"
 import { createLogger } from "./voice-log.js"
+import { findVoicePluginOptions, mergeVoicePluginOptions } from "./voice-plugin-options.js"
 import { VoiceRpc } from "./voice-rpc.js"
 import { createVoiceSpeedController, formatVoiceSpeed } from "./voice-speed.js"
 import { createVoiceSelectionController } from "./voice-selection.js"
@@ -37,7 +38,13 @@ function Status(props: { state: VoiceStateStore; api: Context; speed: () => numb
 export default Plugin.define({
   id: PLUGIN_ID,
   async setup(api) {
-    const config = resolveVoiceConfig(api.options as VoicePluginOptions)
+    let configuredOptions: VoicePluginOptions | undefined
+    try {
+      configuredOptions = findVoicePluginOptions(await api.client.config.get())
+    } catch (error) {
+      log.warn("could not read plugin options from OpenCode config", { error: String(error) })
+    }
+    const config = resolveVoiceConfig(mergeVoicePluginOptions(configuredOptions, api.options))
     const voice = api.client.rpc(VoiceRpc)
     const location = api.location ?? api.data.location.default()
     let enabled: boolean = true
