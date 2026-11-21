@@ -8,7 +8,7 @@ type TransformDevice = "auto" | "cpu" | "gpu" | "cuda" | "dml" | "wasm" | "webgp
 
 type RuntimeStatus = Partial<Pick<VoiceState, "device" | "error">>
 
-type LoadedRuntime = {
+export type LoadedRuntime = {
   dispose(): Promise<void>
   tts: {
     generate(text: string, input: { voice: string; speed: number }): Promise<{ data: Float32Array; sampling_rate: number }>
@@ -82,6 +82,43 @@ function formatError(error: unknown) {
   return String(error)
 }
 
+export async function runWithCpuFallback<Result>(
+  runtime: LoadedRuntime,
+  operation: (runtime: LoadedRuntime) => Promise<Result>,
+  fallback: () => Promise<LoadedRuntime>,
+  logger: VoiceLogger,
+): Promise<{ runtime: LoadedRuntime; result: Result }> {
+  try {
+    return { runtime, result: await operation(runtime) }
+  } catch (error) {
+    if (runtime.device === "cpu") throw error
+
+    logger.warn("accelerated inference failed; retrying on CPU", {
+      device: runtime.device,
+      error: formatError(error),
+    })
+
+    let cpuRuntime: LoadedRuntime
+    try {
+      cpuRuntime = await fallback()
+    } catch (cpuError) {
+      throw new Error(
+        `Inference failed on ${runtime.device}: ${formatError(error)}. CPU fallback failed: ${formatError(cpuError)}`,
+        { cause: cpuError },
+      )
+    }
+
+    try {
+      return { runtime: cpuRuntime, result: await operation(cpuRuntime) }
+    } catch (cpuError) {
+      throw new Error(
+        `Inference failed on ${runtime.device}: ${formatError(error)}. CPU retry failed: ${formatError(cpuError)}`,
+        { cause: cpuError },
+      )
+    }
+  }
+}
+
 async function prepareOnnxRuntime() {
   const ort = await import("onnxruntime-node")
   ;(ort.env as { logLevel?: string }).logLevel = "error"
@@ -120,11 +157,13 @@ export class KokoroRuntime {
       voice: this.config.voice,
       speed: this.config.speed,
     })
-    const runtime = await this.load()
-    const audio = await runtime.tts.generate(text, {
-      voice: this.config.voice,
-      speed: this.config.speed,
-    })
+    const initialRuntime = await this.load()
+    const { runtime, result: audio } = await this.withCpuFallback(initialRuntime, (candidate) =>
+      candidate.tts.generate(text, {
+        voice: this.config.voice,
+        speed: this.config.speed,
+      }),
+    )
     this.logger.info("generate complete", {
       textLength: text.length,
       sampleRate: audio.sampling_rate,
@@ -144,14 +183,16 @@ export class KokoroRuntime {
       speed,
     })
 
-    const runtime = await this.load()
+    const initialRuntime = await this.load()
+    const { runtime, result: segments } = await this.withCpuFallback(initialRuntime, async (candidate) => {
+      const output: Array<{ text: string; data: Float32Array; sampling_rate: number }> = []
+      for await (const audio of candidate.tts.stream(text, { voice, speed })) output.push(audio)
+      return output
+    })
     let segmentCount = 0
     let totalSamples = 0
 
-    for await (const audio of runtime.tts.stream(text, {
-      voice,
-      speed,
-    })) {
+    for (const audio of segments) {
       segmentCount += 1
       totalSamples += audio.data.length
       this.logger.info("stream segment", {
@@ -184,11 +225,11 @@ export class KokoroRuntime {
     await runtime?.dispose()
   }
 
-  private async load() {
+  private async load(deviceOverride?: TransformDevice[]) {
     if (this.loaded) return this.loaded
     if (this.loading) return this.loading
 
-    this.loading = this.create()
+    this.loading = this.create(deviceOverride)
       .then((runtime) => {
         this.loaded = runtime
         this.logger.info("runtime ready", { device: runtime.device })
@@ -204,7 +245,26 @@ export class KokoroRuntime {
     return this.loading
   }
 
-  private async create(): Promise<LoadedRuntime> {
+  private async withCpuFallback<Result>(
+    runtime: LoadedRuntime,
+    operation: (runtime: LoadedRuntime) => Promise<Result>,
+  ): Promise<{ runtime: LoadedRuntime; result: Result }> {
+    return runWithCpuFallback(runtime, operation, () => this.replaceWithCpu(runtime), this.logger)
+  }
+
+  private async replaceWithCpu(runtime: LoadedRuntime) {
+    if (runtime.device === "cpu") return runtime
+    if (this.loaded === runtime) this.loaded = undefined
+    this.loading = undefined
+    await runtime.dispose().catch((error) => {
+      this.logger.warn("failed to dispose accelerated runtime before CPU fallback", { error: formatError(error) })
+    })
+
+    this.logger.info("runtime CPU fallback start", { previousDevice: runtime.device })
+    return this.load(["cpu"])
+  }
+
+  private async create(deviceOverride?: TransformDevice[]): Promise<LoadedRuntime> {
     this.onStatus({ device: "loading", error: undefined })
     this.logger.info("runtime import start", {
       model: this.config.model,
@@ -228,7 +288,7 @@ export class KokoroRuntime {
       } as KokoroLoaderOptions as Parameters<typeof KokoroTTS.from_pretrained>[1])
 
     const errors: string[] = []
-    const devices = filterCandidateDevices(candidateDevices(this.config.device), availableProviders())
+    const devices = deviceOverride ?? filterCandidateDevices(candidateDevices(this.config.device), availableProviders())
     for (const device of devices) {
       this.logger.info("runtime init attempt", { device })
       try {

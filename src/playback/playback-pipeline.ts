@@ -6,6 +6,7 @@ import type { SpeechSource, VoiceConfig, VoiceState } from "../voice-types.js"
 import type { TimerRegistry } from "../shared/timer-registry.js"
 import { formatError, textFingerprint, textPreview } from "../shared/voice-utils.js"
 import type { VoiceStateStore } from "../state/voice-state-store.js"
+import { audioPlayerInstallHint } from "../platform-help.js"
 import { isMissingBinary, PlayerService, type PlayFileTask } from "./player-service.js"
 import { PlaybackQueue, type QueueItem, type QueueTrace, type ReadyAudioItem } from "./queue.js"
 
@@ -556,7 +557,9 @@ export class PlaybackPipeline {
       }
       if (this.currentPlay) this.currentPlay.interrupted = true
       await this.discardReadyAudio(bufferedReadyAudio)
-      this.toastError(`Playback failed. Command not found: ${this.config.audioPlayer}`)
+      this.toastError(
+        `Playback failed. Command not found: ${this.config.audioPlayer}. ${audioPlayerInstallHint()}`,
+      )
       return
     }
 

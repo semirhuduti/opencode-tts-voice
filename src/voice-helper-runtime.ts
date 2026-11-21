@@ -6,6 +6,7 @@ import { createInterface } from "node:readline"
 import type { HelperRequest, HelperResponse, RuntimeStatus } from "./voice-helper-protocol.js"
 import type { VoiceConfig } from "./voice-types.js"
 import type { VoiceLogger } from "./voice-log.js"
+import { nodeRuntimeInstallHint } from "./platform-help.js"
 
 type PendingRequest = {
   id: number
@@ -62,7 +63,9 @@ function resolveDefaultRuntime(execPath: string, env: NodeJS.ProcessEnv) {
   const runtime = resolveExecutable("bun", env) ?? resolveExecutable("node", env) ?? resolveExecutable("nodejs", env)
   if (runtime) return runtime
 
-  throw new Error("No Node or Bun executable found for the TTS helper service. Install one, or set ttsServiceCommand.")
+  throw new Error(
+    `No Node or Bun executable found for the TTS helper service. ${nodeRuntimeInstallHint()} Alternatively, set ttsServiceCommand.`,
+  )
 }
 
 export function resolveHelperServiceLaunch(

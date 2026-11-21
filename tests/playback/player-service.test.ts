@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test"
-import { buildPlayerArgs, describePlayer, toBasePlayer } from "../../src/playback/player-service.js"
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import * as path from "node:path"
+import { buildPlayerArgs, describePlayer, resolveExecutable, toBasePlayer } from "../../src/playback/player-service.js"
 
 describe("player helpers", () => {
   it("uses default args for supported players", () => {
@@ -19,6 +22,7 @@ describe("player helpers", () => {
 
   it("normalizes a player path to its backend name", () => {
     expect(toBasePlayer("/usr/local/bin/mpv")).toBe("mpv")
+    expect(toBasePlayer("C:\\players\\ffplay.exe")).toBe("ffplay")
   })
 
   it("describes the resolved player backend", () => {
@@ -27,5 +31,20 @@ describe("player helpers", () => {
       backend: "mpv",
       player: "mpv",
     })
+  })
+
+  it("resolves Windows executable extensions from PATH", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "spoken-replies-player-"))
+    const executable = path.join(directory, "ffplay.EXE")
+    writeFileSync(executable, "")
+    chmodSync(executable, 0o755)
+
+    try {
+      expect(
+        resolveExecutable("ffplay", { PATH: directory, PATHEXT: ".COM;.EXE;.BAT" }, "win32"),
+      ).toBe(executable)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

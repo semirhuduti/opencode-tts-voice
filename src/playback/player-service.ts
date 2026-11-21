@@ -6,6 +6,7 @@ import type { VoiceConfig } from "../voice-types.js"
 import type { TimerRegistry } from "../shared/timer-registry.js"
 import { formatError } from "../shared/voice-utils.js"
 import type { VoiceLogger } from "../voice-log.js"
+import { audioPlayerInstallHint } from "../platform-help.js"
 
 export type PlayFileTask = {
   id: number
@@ -14,7 +15,7 @@ export type PlayFileTask = {
 }
 
 export function toBasePlayer(playerBin: string) {
-  return path.basename(playerBin).toLowerCase()
+  return (playerBin.split(/[\\/]/).pop() ?? playerBin).toLowerCase().replace(/\.exe$/i, "")
 }
 
 export function isMissingBinary(error: unknown): error is NodeJS.ErrnoException {
@@ -30,16 +31,25 @@ function isExecutable(file: string) {
   }
 }
 
-export function resolveExecutable(playerBin: string) {
-  if (playerBin.includes(path.sep)) {
-    return isExecutable(playerBin) ? playerBin : undefined
-  }
+export function resolveExecutable(
+  playerBin: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform = process.platform,
+) {
+  const hasPath = playerBin.includes(path.sep) || (platform === "win32" && playerBin.includes("/"))
+  const directories = hasPath ? [""] : (env.PATH ?? env.Path ?? "").split(platform === "win32" ? ";" : path.delimiter)
+  const extensions =
+    platform === "win32" && !path.extname(playerBin)
+      ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+      : [""]
 
-  const envPath = process.env.PATH ?? ""
-  for (const dir of envPath.split(path.delimiter)) {
-    if (!dir) continue
-    const candidate = path.join(dir, playerBin)
-    if (isExecutable(candidate)) return candidate
+  for (const dir of directories) {
+    if (!hasPath && !dir) continue
+    const base = hasPath ? playerBin : path.join(dir, playerBin)
+    for (const extension of extensions) {
+      const candidate = `${base}${extension}`
+      if (isExecutable(candidate)) return candidate
+    }
   }
 
   return undefined
@@ -89,7 +99,9 @@ export class PlayerService {
       return resolved
     }
 
-    throw new Error(`No supported audio player found. Install one of: ${PLAYER_CANDIDATES.join(", ")}`)
+    throw new Error(
+      `No supported audio player found. Install one of: ${PLAYER_CANDIDATES.join(", ")}. ${audioPlayerInstallHint()}`,
+    )
   }
 
   async playFile(file: string, current: PlayFileTask) {

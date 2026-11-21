@@ -36,7 +36,19 @@ node --version
 where.exe node
 ```
 
-Windows also needs an audio player on `PATH`; install a Windows build of `ffplay` or `mpv`. If OpenCode still cannot find Node, set `ttsServiceCommand` in this plugin's `options` to the full path to `node.exe`, for example:
+Windows also needs an audio player on `PATH`. One option is FFmpeg, which includes `ffplay`; install it with WinGet:
+
+```powershell
+winget install --id Gyan.FFmpeg -e
+```
+
+Open a new PowerShell window and verify that `ffplay` is available:
+
+```powershell
+where.exe ffplay
+```
+
+Then fully exit and restart OpenCode so it picks up the updated `PATH`. You can also install a Windows build of `mpv`. If OpenCode still cannot find Node, set `ttsServiceCommand` in this plugin's `options` to the full path to `node.exe`, for example:
 
 ```jsonc
 {
