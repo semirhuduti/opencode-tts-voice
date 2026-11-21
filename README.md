@@ -10,7 +10,7 @@ If you appreciate the original author's work, please [buy Semir Huduti a coffee]
 
 ## Features
 
-- Listen to assistant replies as they arrive instead of staying focused on the terminal.
+- Listen to assistant replies as they arrive instead of reading the terminal output.
 - Choose and preview a voice, then adjust speaking speed to suit your preference.
 - Pause, resume, replay the latest reply, or revisit earlier replies.
 - Hear OpenCode question prompts aloud; optionally hear completion announcements and direct subagent replies.
@@ -48,7 +48,7 @@ npm test
 
 To generate and validate a short audio sample, run `npm run test:audio`. The first run may download the Kokoro model. To also play the sample, set `OPENCODE_TTS_TEST_PLAY=1` and have a supported audio player installed.
 
-Load the local build by adding its checkout directory—not `dist/`—to an OpenCode config:
+Load the local build by adding its checkout directory (not `dist/`)to an OpenCode config:
 
 ```jsonc
 {
