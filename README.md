@@ -36,6 +36,24 @@ Or add it to the `plugins` array in your OpenCode `opencode.json` or `opencode.j
 }
 ```
 
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `F5` | Open assistant-message history. |
+| `F6` | Pause or resume speech; replay the latest reply when idle. |
+| `F7` | Replay the latest reply from the beginning. |
+| `F8` | Turn automatic speech on or off. |
+| `Ctrl+F6` | Slow speech by 0.25x. |
+| `Ctrl+F7` | Speed speech up by 0.25x. |
+| `Ctrl+F9` | Open the voice shortcuts menu. |
+| `Ctrl+O` | Preview the selected voice in the voice picker. |
+| `Enter` | Select a voice or play the selected history entry. |
+| `Shift+Enter` | In history, play the selected entry and later entries. |
+| `Escape` | Close the active picker. |
+
+In the history picker, selecting an entry enables speech if it was off. On some keyboards, function keys require holding `Fn`.
+
 ## Build and use a local checkout
 
 To modify the plugin, install Node.js 20.9 or later and Bun 1.3.14 or later, then run these commands from the repository root.
@@ -89,24 +107,6 @@ Load the local build by adding its checkout directory (not `dist/`) to an OpenCo
 ```
 
 Restart or reload OpenCode, open a session, and look for the voice status in the footer. Speech is enabled by default. Question prompts in the active session are spoken by default; idle announcements and direct subagent replies are optional and off by default.
-
-## Keyboard shortcuts
-
-| Shortcut | Action |
-| --- | --- |
-| `F5` | Open assistant-message history. |
-| `F6` | Pause or resume speech; replay the latest reply when idle. |
-| `F7` | Replay the latest reply from the beginning. |
-| `F8` | Turn automatic speech on or off. |
-| `Ctrl+F6` | Slow speech by 0.25x. |
-| `Ctrl+F7` | Speed speech up by 0.25x. |
-| `Ctrl+F9` | Open the voice shortcuts menu. |
-| `Ctrl+O` | Preview the selected voice in the voice picker. |
-| `Enter` | Select a voice or play the selected history entry. |
-| `Shift+Enter` | In history, play the selected entry and later entries. |
-| `Escape` | Close the active picker. |
-
-In the history picker, selecting an entry enables speech if it was off. On some keyboards, function keys require holding `Fn`.
 
 ## Settings
 
