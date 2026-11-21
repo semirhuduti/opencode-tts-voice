@@ -38,7 +38,19 @@ Or add it to the `plugins` array in your OpenCode `opencode.json` or `opencode.j
 
 ## Build and use a local checkout
 
-To modify the plugin, install Node.js 20.9 or later and Bun, then run these commands from the repository root:
+To modify the plugin, install Node.js 20.9 or later and Bun 1.3.14 or later, then run these commands from the repository root.
+
+On WSL with Ubuntu, install Bun from your WSL terminal (not PowerShell):
+
+```sh
+sudo apt update
+sudo apt install -y curl unzip
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc # use ~/.zshrc if your WSL shell is zsh
+bun --version
+```
+
+This is Bun's official installer. In WSL, it installs Bun in the Linux environment under `~/.bun` and adds it to your shell path; it does not install Bun for Windows. The version command should report Bun 1.3.14 or later. See the [official Bun installation guide](https://bun.sh/docs/installation) if `bun` is not found or you use a different shell.
 
 ```sh
 npm install
@@ -48,7 +60,7 @@ npm test
 
 To generate and validate a short audio sample, run `npm run test:audio`. The first run may download the Kokoro model. To also play the sample, set `OPENCODE_TTS_TEST_PLAY=1` and have a supported audio player installed.
 
-Load the local build by adding its checkout directory (not `dist/`)to an OpenCode config:
+Load the local build by adding its checkout directory (not `dist/`) to an OpenCode config:
 
 ```jsonc
 {
