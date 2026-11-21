@@ -14,5 +14,5 @@ non-command file inspection and editing tools when practical.
 Do not prefix commit messages or branch names with categories such as `feat`,
 `fix`, or `chore`. Use a clear, descriptive name without a prefix.
 
-After making changes, suggest a commit message at the very end of the final
-response.
+Whenever you make repository changes, include a suggested commit message as
+the final line of your final response.
