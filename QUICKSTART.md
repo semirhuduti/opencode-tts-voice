@@ -74,9 +74,8 @@ In the project where you want speech, create or edit `opencode.jsonc`:
 ```
 
 Replace the path with the absolute path to **this checkout**, not `dist/`.
-For example, the local test project uses
-`/Users/scott/development/forks/opencode-tts-voice`. If the file already has
-settings or plugins, keep them and add this path to the existing `plugins`
+Replace the path with the absolute path to your checkout. If the file already
+has settings or plugins, keep them and add this path to the existing `plugins`
 array rather than replacing the file.
 
 OpenCode loads the built plugin from that checkout. Open the project in

@@ -1,148 +1,48 @@
-# @semirhuduti/opencode-tts-voice
+# OpenCode Spoken Replies
 
-Thank you to the original author for this useful tool. I forked this to add some features for my own workflow.
+OpenCode Spoken Replies adds local text-to-speech to OpenCode. It reads assistant responses aloud as they arrive, using the Kokoro voice model, and provides TUI controls to pause, replay, and choose voices. Speech is generated on your machine; the model is downloaded from Hugging Face on first use.
 
-For a quick start guide see [QUICKSTART.md](QUICKSTART.md).
+This is an independently maintained fork of [opencode-tts-voice](https://github.com/semirhuduti/opencode-tts-voice), with a distinct package name. It is not maintained, endorsed, or supported by the original author.
 
-Below this line, the original README is left as is.
+If you appreciate the original author's work, please [buy Semir Huduti a coffee](https://www.buymeacoffee.com/semirhuduti).
 
----
-
-Voice output plugin for OpenCode powered by Kokoro, with TUI shortcut support for controlling playback.
-
-![alt text](demo.png)
-
-<a href="https://www.buymeacoffee.com/semirhuduti" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
-
-
-## ALPHA
-
-Still wip, make sure to install sharp versions if you want a bit more reliability.
+[![Buy Semir Huduti a coffee](https://cdn.buymeacoffee.com/buttons/default-orange.png)](https://www.buymeacoffee.com/semirhuduti)
 
 ## Features
 
-- reads assistant responses aloud while they stream in the TUI
-- speaks question tool prompts from the active visible session
-- adds TUI shortcuts for pause, history replay, replay latest response, and toggle on or off
-- supports configurable voice, speed, model, precision, and playback settings
-- uses local playback via `mpv`, `ffplay`, `paplay`, or `aplay`
-- prefers GPU-capable execution when available and falls back to CPU automatically
+- Listen to assistant replies as they arrive instead of staying focused on the terminal.
+- Choose and preview a voice, then adjust speaking speed to suit your preference.
+- Pause, resume, replay the latest reply, or revisit earlier replies whenever you need.
+- Hear OpenCode question prompts aloud; optionally hear completion announcements and direct subagent replies.
+- Turn speech on or off quickly, with the current voice status and speed visible in OpenCode.
+- Keep speech generation on your machine; no separate cloud speech service or API key is required.
 
-## Requirements
+## Installation
 
-- Linux, macOS, or Windows
-- OpenCode V2 (targeted against the 2.3.2 plugin API)
-- Node.js 20.9 or newer, npm, and Bun for building and testing from source
-- A build destination: the build writes to `dist/`
-- one of `mpv`, `ffplay`, `paplay`, or `aplay` available on the system. `mpv` is recommended.
+Requirements:
 
-Optional:
+- OpenCode **2.3.2 or newer in the 2.x line** (the package currently targets `^2.3.2`).
+- An audio player available on `PATH`: `ffplay`, `mpv`, `paplay`, or `aplay`. `mpv` is recommended. Install it with your operating system's package manager.
+- Internet access the first time a model is needed, unless you configure a compatible local model and cache.
 
-- CUDA and cuDNN runtime libraries for GPU execution
+Once this package is published, add it to the `plugins` array in your OpenCode `opencode.json` or `opencode.jsonc` configuration. OpenCode supports published npm plugins and loads the package's server and TUI parts together. To install it globally from the terminal after publication, use:
 
-## Install
-
-This fork is being migrated to OpenCode V2 and has not yet been validated. Do not
-install the original npm package if you intend to run this fork.
-After changing dependencies or overrides, regenerate the lockfile before testing.
-
-The V2 port uses plugin-scoped storage; it does not import the old V1 speech
-toggle, so speech is enabled by default on first use.
-
-After installing the fork's dependencies and building it, point a test project's
-`opencode.jsonc` at the absolute path of this checkout:
+```sh
+opencode plugin add @scotteza/opencode-spoken-replies
+```
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
-    { "package": "/absolute/path/to/opencode-tts-voice", "options": {} }
+    "@scotteza/opencode-spoken-replies"
   ]
 }
 ```
 
-OpenCode loads the server and TUI parts together. Test in an isolated environment
-before enabling the plugin globally. The V2 port's history picker, streaming,
-question forms, shortcuts, and shared toggle still need runtime verification.
+For project-only use, put this in that project's OpenCode config. For global use, add it to `~/.config/opencode/opencode.json` (or `.jsonc`), preserving existing settings and plugin entries. You can pin a published release with `@scotteza/opencode-spoken-replies@VERSION`.
 
-### Build and test
-
-Run these commands from the root of this checkout. Install dependencies first
-(this updates the lockfile if needed):
-
-```sh
-npm install --ignore-scripts
-```
-
-This skips dependency lifecycle scripts rather than running them automatically.
-Some native dependencies may require those scripts on your platform; investigate
-the error and the relevant scripts before choosing to run them.
-
-Check the resolved dependencies for known npm advisories, build the TypeScript
-and TUI bundle, and run the automated tests:
-
-```sh
-npm audit
-npm run build
-npm test
-```
-
-Run `npm run build` again after changing source files: the audio test launches
-the built helper from `dist/`.
-
-The root `package.json` overrides `sharp`, `glob`, and `minimatch` to address
-known advisories. These versions fall outside some upstream dependency ranges,
-so compatibility must be tested. npm and Bun apply overrides from the root
-project only; another project installing this package as a dependency may ignore
-these overrides and resolve a different dependency tree. This is not a security
-guarantee for a published package.
-
-To generate a short clip on CPU and validate its WAV data without playing it:
-
-```sh
-npm run test:audio
-```
-
-The audio test starts the built helper in a Node child process. It downloads the
-default Kokoro model from Hugging Face if it is not already cached; the download
-may take time and consume disk space. The test does not exercise OpenCode itself.
-To also listen to the generated clip through a supported installed player:
-
-```sh
-OPENCODE_TTS_TEST_PLAY=1 npm run test:audio
-```
-
-For example, on macOS with Homebrew, install the recommended player if needed:
-
-```sh
-brew install mpv
-```
-
-Automatic player selection does not currently include macOS's built-in `afplay`.
-If playback is silent, check the system's sound output and volume.
-
-Finally, test the built fork in a disposable OpenCode project before enabling it
-globally: check live speech, pause, replay, the history picker, question prompts,
-the toggle, reload, and helper cleanup. An OpenCode TUI may select a different
-helper runtime from the Node process used by the audio test, so validate the
-actual runtime too. A passing audit and tests reduce uncertainty but cannot
-guarantee security or compatibility.
-
-Speech generation runs in a persistent helper service process so Kokoro/ONNX work and WAV encoding do not block the TUI event loop. Because it is a separate operating-system process, you can lower or cap only speech generation without limiting OpenCode itself.
-
-## Spoken-Friendly System Prompt
-
-This package includes built-in system prompt guidance that helps agents write responses that are easier to understand through speech playback. The runtime sanitizer still cleans up streamed text before playback, but the system prompt improves the source response by encouraging spoken-friendly prose instead of visually dense formatting.
-
-There is no separate skill to install. The server plugin adds the guidance
-directly to the session's system prompt when speech is enabled.
-
-The injected system prompt also asks agents to use OpenCode's question tool,
-one question per call, so question prompts can be spoken reliably.
-
-## Config
-
-Example project `opencode.jsonc`:
+**The package is not published yet.** Until it is available from npm, a local checkout can be loaded as a directory:
 
 ```jsonc
 {
@@ -150,11 +50,91 @@ Example project `opencode.jsonc`:
   "plugins": [
     {
       "package": "/absolute/path/to/opencode-tts-voice",
+      "options": {}
+    }
+  ]
+}
+```
+
+The local checkout must have its dependencies installed and its `dist/` output built. The `npm run build` script requires Node.js 20.9 or later and Bun. Users of the published package will not need to clone or build the source.
+
+After restarting or reloading OpenCode, look for the voice status in the home or session footer. On first use, Kokoro downloads its model; the initial load can take time and disk space.
+
+## Usage
+
+Speech is enabled by default. Assistant responses are spoken as they stream. Question prompts in the active session are also spoken by default. Use the shortcuts below to pause, replay, or toggle speech. Voice actions are also available in OpenCode's command palette under **Voice**.
+
+Choose **Choose voice** from the **Voice shortcuts** menu or command palette to search voices by name, accent, gender, or ID. Press **Ctrl+O** to preview the highlighted voice and **Enter** to select it. Previews queue behind current speech and require speech to be enabled and unpaused.
+
+In the history picker, **Enter** plays the selected response; **Shift+Enter** plays it and subsequent playable assistant messages. **Escape** closes the picker. The footer shows speech status and current speed.
+
+## Keyboard shortcuts
+
+| Shortcut | Action | Description |
+| --- | --- | --- |
+| `F5` | Assistant history | Choose a recent assistant message to play. |
+| `F6` | Play or pause | Toggles playback; when idle, replays the latest response. |
+| `F7` | Replay latest | Replays the latest assistant response from the beginning. |
+| `F8` | Toggle speech | Enables or disables automatic speech. |
+| `Ctrl+F6` | Slow down | Decreases speed by 0.25x. |
+| `Ctrl+F7` | Speed up | Increases speed by 0.25x. |
+| `Ctrl+F9` | Voice shortcuts | Opens the voice action menu. |
+| `Ctrl+O` | Preview voice | Previews the highlighted voice in the voice picker. |
+| `Enter` | Select / play | Selects the highlighted voice or plays a selected history entry. |
+| `Shift+Enter` | Play forward | In history, plays the selected entry and later entries. |
+| `Escape` | Close picker | Closes the active history or voice picker. |
+
+The four function-key bindings can be customized using `shortcuts` below. Speed controls and the voice menu currently use fixed bindings. On some keyboards, function keys may require holding `Fn`. Other OpenCode bindings may conflict; customize the configurable bindings if needed.
+
+## Configuration
+
+Add options to the plugin entry's `options` object. Defaults below are taken from the implementation.
+
+| Option | Default | Accepted values and effect |
+| --- | --- | --- |
+| `voice` | `"af_heart"` | Kokoro voice ID. |
+| `speed` | `1` | Positive number, normalized to 0.25x steps and limited to 0.25–5x. Higher is faster. If omitted, the last adjusted speed is remembered. |
+| `device` | `"auto"` | `auto`, `cpu`, `gpu`, `cuda`, `dml`, `wasm`, or `webgpu`; tries alternatives and falls back to CPU/WASM. |
+| `dtype` | `"q8"` | `fp32`, `fp16`, `q4`, `q4f16`, or `q8` model precision. |
+| `model` | `"onnx-community/Kokoro-82M-v1.0-ONNX"` | Hugging Face model ID or compatible local model path. |
+| `cacheDir` | Transformers.js default | Directory for model cache and downloads. |
+| `audioPlayer` | `"auto"` | `auto`, `ffplay`, `mpv`, `paplay`, `aplay`, or another player command. Auto tries `ffplay`, `mpv`, `paplay`, then `aplay`. |
+| `audioPlayerArgs` | `[]` | Extra player arguments as a string or string array. |
+| `speakResponses` | `true` | Speak streamed assistant responses. |
+| `speakSubagentResponses` | `false` | Include direct child subagent responses. |
+| `speakOnIdle` | `false` | Speak an announcement when a session becomes idle. |
+| `speakQuestions` | `true` | Speak question prompts in the active session. |
+| `idleAnnouncement` | `"Task completed."` | Text used for the idle announcement. |
+| `speechBlocks` | `["message", "idle"]` | Allowed source types: `reason`, `message`, `idle`. Reasoning is opt-in. |
+| `maxSpeechChunkChars` | `1000` | Maximum text length sent to TTS per chunk; minimum 32. |
+| `streamFlushChars` | `180` | Target streamed-text flush length; minimum 16 and capped at `maxSpeechChunkChars`. |
+| `maxSpeechChars` | `2000` | Maximum accepted text length for a spoken chunk; minimum 64. |
+| `fileExtensions` | `[]` | Additional alphanumeric file extensions recognized by text sanitization; string or string array. |
+| `trimSilenceThreshold` | `0.001` | Non-negative generated-audio silence threshold. |
+| `leadingAudioPadMs` | `12` | Non-negative leading audio padding in milliseconds. |
+| `normalPauseMs` | `240` | Non-negative pause between ordinary speech chunks in milliseconds. |
+| `sentencePauseMs` | `100` | Non-negative pause after sentence-, clause-, or newline-ending chunks in milliseconds. |
+| `ttsServiceCommand` | Runtime-resolved Node or Bun | Optional command used to wrap the helper process, for example with OS resource controls. |
+| `ttsServiceArgs` | `["{helper}"]` | Helper arguments as a string or array; `{helper}` and `{runtime}` are expanded. |
+| `shortcuts.history` | `"f5"` | Key binding for assistant history. |
+| `shortcuts.pause` | `"f6"` | Key binding for play/pause. |
+| `shortcuts.skipLatest` | `"f7"` | Key binding for replay latest. |
+| `shortcuts.toggle` | `"f8"` | Key binding for speech on/off. |
+
+Example:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    {
+      "package": "@scotteza/opencode-spoken-replies",
       "options": {
         "voice": "am_adam",
         "speed": 1.25,
-        "dtype": "q4",
-        "speechBlocks": ["message", "idle"],
+        "device": "cpu",
+        "audioPlayer": "mpv",
+        "speakQuestions": false,
         "shortcuts": {
           "history": "f5",
           "pause": "f6",
@@ -167,158 +147,37 @@ Example project `opencode.jsonc`:
 }
 ```
 
-The plugin works with defaults, so the `shortcuts` block is optional unless you want custom keybinds.
+With no explicit `voice` or `speed` option, voice picker selections and speed adjustments are remembered in OpenCode plugin storage. Explicit valid settings take precedence when the plugin loads.
 
-Use a test project while validating the migration.
+### Environment variables and privacy
 
-## Options
+- `OPENCODE_TTS_VOICE_LOG_LEVEL`: `silent`, `error`, `warn` (default), `info`, or `debug`. The older alias `OPENCODE_TTS_LOG_LEVEL` is also accepted. `silent` disables plugin logging.
+- `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL`: set to `warn` or `error` to diagnose helper startup. Helper logging is silent by default.
+- `OPENCODE_TTS_VOICE_CONSOLE_LOG`: set to `1` or `true` to also log to the console. The older alias `OPENCODE_TTS_CONSOLE_LOG` is also accepted.
 
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `voice` | string | `af_heart` | Voice ID used for speech generation. |
-| `speed` | number | `1` | Speech speed, rounded to the nearest 0.25 and clamped to 0.25–5. Higher values are faster. |
-| `device` | string | `auto` | Preferred execution device. Accepted values: `auto`, `cpu`, `cuda`, `dml`, `gpu`, `wasm`, `webgpu`. The plugin falls back to CPU automatically if the preferred backend cannot initialize. |
-| `dtype` | string | `q8` | Model precision. Accepted values: `fp32`, `fp16`, `q4`, `q4f16`, `q8`. |
-| `model` | string | `onnx-community/Kokoro-82M-v1.0-ONNX` | Model ID or compatible local model path. |
-| `cacheDir` | string | Transformers.js default cache | Directory used for model downloads and cache data. |
-| `audioPlayer` | string | `auto` | Playback backend command. `auto` picks the first installed backend from `ffplay`, `mpv`, `paplay`, or `aplay`. `mpv` is recommended. |
-| `audioPlayerArgs` | string or string[] | `[]` | Additional arguments passed to the playback backend helper. |
-| `speakResponses` | boolean | `true` | Speak streamed assistant responses. |
-| `speakSubagentResponses` | boolean | `false` | Speak responses from direct subagent child sessions of the visible session. |
-| `speakOnIdle` | boolean | `false` | Speak a message when the session becomes idle. |
-| `speakQuestions` | boolean | `true` | Speak question tool prompts when they are asked in the active session. |
-| `idleAnnouncement` | string | `Task completed.` | Idle announcement text. |
-| `speechBlocks` | string[] | `["message", "idle"]` | Fine-grained speech source filter. Accepted values: `reason`, `message`, `idle`. Reasoning is opt-in. |
-| `maxSpeechChunkChars` | number | `1000` | Maximum chunk size sent to the TTS generator. |
-| `streamFlushChars` | number | `180` | Target flush size for streamed assistant text. |
-| `maxSpeechChars` | number | `2000` | Maximum text length accepted for a single spoken chunk. |
-| `fileExtensions` | string or string[] | `[]` | Additional alphanumeric file extensions recognized by speech sanitization. Extends the built-in list. |
-| `trimSilenceThreshold` | number | `0.001` | Silence threshold used when trimming generated chunks. |
-| `leadingAudioPadMs` | number | `12` | Leading padding preserved before detected speech. |
-| `normalPauseMs` | number | `240` | Pause added after normal chunks. |
-| `sentencePauseMs` | number | `100` | Pause added after sentence, clause, or newline-ending chunks. |
-| `ttsServiceCommand` | string | Resolved Node or Bun runtime | Optional command used to start the TTS helper service. Use this only when wrapping the helper with OS resource controls. |
-| `ttsServiceArgs` | string or string[] | `['{helper}']` | Optional helper service arguments. `{helper}` expands to the bundled helper script, and `{runtime}` expands to the Node or Bun executable used for the helper. |
-| `shortcuts.history` | string | `f5` | TUI shortcut for opening the previous assistant message picker. Enter plays the selected message, and shift return plays from the selected message forward. |
-| `shortcuts.pause` | string | `f6` | TUI shortcut for play or pause. If audio is already playing, it pauses. If playback is idle, it replays the latest assistant response. |
-| `shortcuts.skipLatest` | string | `f7` | TUI shortcut for replaying the latest assistant message in the active session. |
-| `shortcuts.toggle` | string | `f8` | TUI shortcut for enabling or disabling automatic speech. |
+Logs are written beside OpenCode logs under `${XDG_DATA_HOME:-~/.local/share}/opencode/log/` and can include previews of spoken text. Review logs before sharing them. Speech generation uses the local Kokoro runtime; the model is obtained from Hugging Face unless already cached or configured locally.
 
-When `speed` is not configured, speed adjustments are remembered in OpenCode's
-durable plugin storage across restarts. An explicitly configured, valid `speed`
-takes precedence on each plugin load; adjustments remain temporary and do not
-replace the previously remembered speed.
-Configured and previously saved positive speeds are rounded to the nearest
-0.25x step and limited to the 0.25x–5x range. Halfway values round up.
+## Differences from the original
 
-The voice picker is available from the voice shortcut menu and the command
-palette. Search by name, accent, gender, or voice ID; use Ctrl+O to preview a
-highlighted voice and Enter to select it. Preview audio is queued after any
-current speech and requires speech to be enabled and unpaused. Without a
-configured `voice`, the selection is remembered across restarts. A configured
-`voice` takes precedence on each plugin load; picker selections are temporary
-and do not replace the previously remembered selection.
+The upstream repository supplied the original Kokoro-based OpenCode voice plugin. This fork has since moved to the OpenCode 2.x plugin API and added or changed user-facing capabilities visible in its source and commit history:
 
-## Limiting TTS CPU Usage
+- Added streaming response playback, spoken question prompts, optional idle announcements, and optional direct subagent response speech.
+- Added a history picker, voice search and preview, persistent voice and speed selection, adjustable playback speed, and a voice action menu.
+- Added a separate TTS helper process, text sanitization and chunking controls, speech-friendly prompt guidance, expanded playback controls, and configurable execution and player settings.
+- Added OpenCode 2.x server and TUI package entrypoints.
 
-The plugin starts Kokoro generation in a child service process. By default it launches the bundled helper directly. To apply operating-system limits to only speech generation, set `ttsServiceCommand` and `ttsServiceArgs` to wrap that helper process.
+These changes are maintained independently; the original project remains at [semirhuduti/opencode-tts-voice](https://github.com/semirhuduti/opencode-tts-voice).
 
-The `{helper}` placeholder means the bundled helper script. The `{runtime}` placeholder means the Node or Bun executable used to run that helper. The older `{node}` placeholder is still accepted as an alias for `{runtime}`.
+## Credits
 
-For example, to give speech generation a lower priority, add these values to
-the plugin's `options` object:
+OpenCode Spoken Replies builds on [opencode-tts-voice](https://github.com/semirhuduti/opencode-tts-voice), created by [Semir Huduti (semirhuduti)](https://github.com/semirhuduti) and released under the MIT licence. The original project provided the foundation; this fork adds substantial changes and is independently developed and maintained by [Scott Edwards](https://github.com/scotteza). The original author does not maintain, endorse, or support this fork.
 
-```json
-{
-  "ttsServiceCommand": "nice",
-  "ttsServiceArgs": ["-n", "10", "{runtime}", "{helper}"]
-}
-```
+## Licence
 
-This lowers priority rather than imposing a hard CPU cap.
+Distributed under the MIT licence. See [LICENSE](LICENSE) for the licence text and copyright notices.
 
-## Logging
+## Support
 
-Runtime logging defaults to warnings and errors only to avoid terminal redraw pressure in the TUI. Enabled logs are also written beside OpenCode's own logs at `${XDG_DATA_HOME:-~/.local/share}/opencode/log/opencode-tts-voice-<timestamp>.log`. Logs can include previews of spoken text, including at the default warning level. Set `OPENCODE_TTS_VOICE_LOG_LEVEL=silent` to disable plugin logging, or use `debug` or `info` when diagnosing plugin behavior. Helper process logs are silent by default because stdout is used for the helper protocol; set `OPENCODE_TTS_VOICE_HELPER_LOG_LEVEL=warn` or `error` only when debugging helper startup failures.
+Report issues and request changes in the [OpenCode Spoken Replies issue tracker](https://github.com/scotteza/opencode-tts-voice/issues).
 
-## Shortcuts
-
-Default TUI shortcuts:
-
-- `f5`: open previous assistant message picker
-- `f6`: play or pause speech
-- `f7`: replay the latest assistant message
-- `f8`: enable or disable speech
-
-The TUI footer displays whether voice is on, off, or in an error state.
-
-The history picker lists up to 50 recent playable assistant messages from the active session's synchronized history. Press `Enter` to play only the selected message, `shift+return` to play the selected message and later playable assistant messages, or `Escape` to close the picker.
-
-`speechBlocks` works as a source filter on top of the speech toggles:
-
-- `speakResponses` enables or disables streamed response playback
-- `speakSubagentResponses` enables or disables speech from subagent child sessions
-- `speakOnIdle` enables or disables idle announcements
-- `speakQuestions` enables or disables question tool prompt playback for the active session only
-- `speechBlocks` decides which of `reason`, `message`, and `idle` are allowed to be spoken when those features are active
-
-Form prompt speech reads the first non-hidden, unconditional field title, not answer options or descriptions. Prompts are governed by the voice toggle and pause state, never spoken for subagent sessions, and queued behind current playback.
-
-Removed alpha option names are not accepted as aliases. Replace `playerBin` with `audioPlayer`, `playerArgs` with `audioPlayerArgs`, `readResponses` with `speakResponses`, `readSubagentResponses` with `speakSubagentResponses`, `announceOnIdle` with `speakOnIdle`, `idleMessage` with `idleAnnouncement`, `voiceBlocks` with `speechBlocks`, `speechChunkLength` with `maxSpeechChunkChars`, `streamSoftLimit` with `streamFlushChars`, `maxTextLength` with `maxSpeechChars`, `defaultChunkPauseMs` with `normalPauseMs`, and `clauseChunkPauseMs` with `sentencePauseMs`.
-
-## Publish Notes
-
-Published package entrypoints:
-
-- `./server`: server plugin entrypoint for prompt guidance
-- `./tui`: TUI plugin entrypoint for voice playback
-
-This package is intended to be published as a public scoped npm package.
-
-## Playback Backends
-
-Supported backends:
-
-- `auto` (default)
-- `mpv`
-- `ffplay`
-- `paplay`
-- `aplay`
-
-To override the backend, set `audioPlayer` and `audioPlayerArgs` in the
-plugin's `options` object shown above.
-
-## Voices
-
-The plugin accepts Kokoro voice IDs. Common English voices include:
-
-- `af_heart`
-- `af_alloy`
-- `af_aoede`
-- `af_bella`
-- `af_jessica`
-- `af_kore`
-- `af_nicole`
-- `af_nova`
-- `af_river`
-- `af_sarah`
-- `af_sky`
-- `am_adam`
-- `am_echo`
-- `am_eric`
-- `am_fenrir`
-- `am_liam`
-- `am_michael`
-- `am_onyx`
-- `am_puck`
-- `am_santa`
-- `bf_alice`
-- `bf_emma`
-- `bf_isabella`
-- `bf_lily`
-- `bm_daniel`
-- `bm_fable`
-- `bm_george`
-- `bm_lewis`
-
-`kokoro-js` ships additional voices beyond this list. If upstream adds new voices, you can usually use them directly through the `voice` option.
+OpenCode's [ecosystem page](https://opencode.ai/docs/ecosystem/) is separate from npm distribution. The current page identifies itself as V1 documentation and says additions are made by pull request, so verify the V2 listing process before submitting; npm publication alone does not add the project there.

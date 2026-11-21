@@ -1,14 +1,15 @@
 {
-  "name": "@semirhuduti/opencode-tts-voice",
+  "name": "@scotteza/opencode-spoken-replies",
   "version": "0.6.1-alpha.3",
-  "description": "Kokoro voice output plugin for OpenCode with TUI shortcuts",
+  "description": "Local Kokoro text-to-speech for OpenCode assistant replies",
   "keywords": [
     "opencode",
     "opencode-plugin",
     "tts",
     "voice",
     "kokoro",
-    "tui"
+    "tui",
+    "spoken-replies"
   ],
   "files": [
     "dist",
@@ -42,11 +43,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/semirhuduti/opencode-tts-voice.git"
+    "url": "git+https://github.com/scotteza/opencode-tts-voice.git"
   },
-  "homepage": "https://github.com/semirhuduti/opencode-tts-voice",
+  "homepage": "https://github.com/scotteza/opencode-tts-voice",
   "bugs": {
-    "url": "https://github.com/semirhuduti/opencode-tts-voice/issues"
+    "url": "https://github.com/scotteza/opencode-tts-voice/issues"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.5.1",
