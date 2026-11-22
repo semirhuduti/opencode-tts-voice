@@ -2,6 +2,10 @@
 
 This is an OpenCode text-to-speech plugin. See `AGENT.md` for project background.
 
+## Responses
+
+Use ASD-STE100 Simplified Technical English as guidance when you respond to the user. Write short, clear sentences. Use plain words and keep responses to the point.
+
 ## Build and test
 
 - Run `npm run build`, `npm test`, and `npm pack --dry-run` without asking for approval.
