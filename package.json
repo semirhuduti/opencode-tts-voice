@@ -1,6 +1,6 @@
 {
   "name": "@scotteza/opencode-spoken-replies",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Local Kokoro text-to-speech for OpenCode assistant replies",
   "keywords": [
     "opencode",
