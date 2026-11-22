@@ -48,7 +48,7 @@ describe("sanitizeSpeechText", () => {
 
   it("speaks concise file and folder paths", () => {
     expect(sanitizeSpeechText("Open src/api/items/Article.ts, dist/tui-plugin.js, and ./src/api")).toBe(
-      "Open the Article TypeScript file in the items folder. the tui plugin JavaScript file in the dist folder. the api folder.",
+      "Open the Article TypeScript file in the items folder, the tui plugin JavaScript file in the dist folder, and the api folder.",
     )
   })
 
@@ -60,7 +60,7 @@ describe("sanitizeSpeechText", () => {
 
   it("recognizes common modern file extensions", () => {
     expect(sanitizeSpeechText("Edit components/App.vue, icon.svg, and image.png")).toBe(
-      "Edit the App Vue file in the components folder. the icon SVG image file. the image PNG image file.",
+      "Edit the App Vue file in the components folder, the icon SVG image file, and the image PNG image file.",
     )
   })
 
@@ -90,8 +90,8 @@ describe("sanitizeSpeechText", () => {
     expect(sanitizeSpeechText("First line\nSecond line")).toBe("First line.\nSecond line.")
   })
 
-  it("converts comma separated prose to period separated speech", () => {
-    expect(sanitizeSpeechText("One, two, and three")).toBe("One. two. three.")
+  it("preserves commas and conjunctions", () => {
+    expect(sanitizeSpeechText("One, two, and three")).toBe("One, two, and three.")
   })
 
   it("strips spaced emphasis markers", () => {
@@ -156,7 +156,7 @@ Some final text with a [relative path reference](./README.md) and a URL: https:/
         "Heading, 1. Main Heading.",
         "Heading, 2. Subheading.",
         "Heading, 3. Smaller Heading.",
-        "This paragraph has bold text. italic text. inline code. a link to example.",
+        "This paragraph has bold text, italic text, inline code, and a link to example.",
         "This is a blockquote.",
         "It spans multiple lines.",
         "Bullet item one.",
@@ -170,7 +170,7 @@ Some final text with a [relative path reference](./README.md) and a URL: https:/
         "Pending task.",
         "Omitted table.",
         "Omitted code block.",
-        "Inline technical text: Omitted inline code. the voice sanitize TypeScript file. the tui plugin JavaScript file in the dist folder.",
+        "Inline technical text: Omitted inline code. the voice sanitize TypeScript file, and the tui plugin JavaScript file in the dist folder.",
         "Alt text for image.",
         "Heading, 4. Another Heading.",
         "Some final text with a relative path reference and a URL.",
@@ -180,6 +180,15 @@ Some final text with a [relative path reference](./README.md) and a URL: https:/
 })
 
 describe("SpeechSanitizer", () => {
+  it("removes emphasis markers split across streaming deltas", () => {
+    const sanitizer = createSpeechSanitizer()
+    const chunks = [
+      sanitizer.push("This is **very ", false),
+      sanitizer.push("important", false),
+      sanitizer.push("** to know.", true),
+    ].filter(Boolean)
+    expect(chunks.join(" ")).toBe("This is very important to know.")
+  })
   it("labels headings split across streaming deltas", () => {
     const sanitizer = createSpeechSanitizer()
     const chunks = [sanitizer.push("##", false), sanitizer.push(" Streaming heading", false), sanitizer.push("", true)].filter(

@@ -139,6 +139,7 @@ function normalizeSpeechText(text: string) {
     .replace(/\r/g, "\n")
     .replace(/\u00a0/g, " ")
     .replace(/[\t ]+/g, " ")
+    .replace(/([.!?])\s*,/g, "$1")
     .replace(/\s+([,.!?;:])/g, "$1")
     .replace(/([,!?;:])(?=[^\s\n])/g, "$1 ")
     .replace(/\.([^\s\n])/g, (match: string, next: string, offset: number, input: string) => {
@@ -320,16 +321,12 @@ function stripMarkdownEmphasis(text: string) {
     .replace(/(^|\W)_\s*([^_\n]*?\S[^_\n]*?)\s*_(?=\W|$)/g, "$1$2")
 }
 
-function replaceCommaSeparators(text: string) {
-  return text.replace(/([.!?])?,\s+(?:(?:and|or)\s+)?/gi, (_match, punctuation: string | undefined) => {
-    return punctuation ? `${punctuation} ` : ". "
-  })
-}
-
 function sanitizeInline(text: string, settings: SanitizerSettings) {
-  return replaceCommaSeparators(
-    rewritePaths(
+  return rewritePaths(
       stripMarkdownEmphasis(text)
+        // Streaming deltas can split emphasis markers from their matching pair.
+        // Do not send stray Markdown asterisks to the speech model.
+        .replace(/\*/g, "")
         .replace(/\\([\\`*_[\]{}()#+\-.!>])/g, "$1")
         .replace(/!\[([^\]]*)\]\([^)]+\)/g, (_match, alt: string) => alt.trim() || IMAGE_PLACEHOLDER)
         .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -344,7 +341,6 @@ function sanitizeInline(text: string, settings: SanitizerSettings) {
         .replace(/[<>]/g, " ")
         .replace(/[`]/g, " "),
       settings,
-    ),
   )
 }
 

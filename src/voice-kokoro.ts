@@ -183,16 +183,33 @@ export class KokoroRuntime {
       speed,
     })
 
-    const initialRuntime = await this.load()
-    const { runtime, result: segments } = await this.withCpuFallback(initialRuntime, async (candidate) => {
-      const output: Array<{ text: string; data: Float32Array; sampling_rate: number }> = []
-      for await (const audio of candidate.tts.stream(text, { voice, speed })) output.push(audio)
-      return output
-    })
+    let runtime = await this.load()
     let segmentCount = 0
     let totalSamples = 0
 
-    for (const audio of segments) {
+    const stream = async function* (candidate: LoadedRuntime) {
+      yield* candidate.tts.stream(text, { voice, speed })
+    }
+    let iterator = stream(runtime)
+    try {
+      while (true) {
+      let next: IteratorResult<{ text: string; data: Float32Array; sampling_rate: number }, void>
+      try {
+        next = await iterator.next()
+      } catch (error) {
+        // Once audio has been emitted, retrying the whole input would repeat speech.
+        if (runtime.device === "cpu" || segmentCount > 0) throw error
+        this.logger.warn("accelerated stream failed; retrying on CPU", {
+          device: runtime.device,
+          error: formatError(error),
+        })
+        await iterator.return(undefined).catch(() => undefined)
+        runtime = await this.replaceWithCpu(runtime)
+        iterator = stream(runtime)
+        continue
+      }
+      if (next.done) break
+      const audio = next.value
       segmentCount += 1
       totalSamples += audio.data.length
       this.logger.info("stream segment", {
@@ -208,6 +225,9 @@ export class KokoroRuntime {
         audio: audio.data,
         sampleRate: audio.sampling_rate,
       }
+      }
+    } finally {
+      await iterator.return(undefined).catch(() => undefined)
     }
 
     this.logger.info("stream complete", {

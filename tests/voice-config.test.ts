@@ -91,8 +91,8 @@ describe("resolveVoiceConfig", () => {
     expect(config.speakQuestions).toBe(true)
   })
 
-  it("defaults sentence pauses to 100 milliseconds", () => {
-    expect(resolveVoiceConfig(undefined).sentencePauseMs).toBe(100)
+  it("defaults sentence pauses to 50 milliseconds", () => {
+    expect(resolveVoiceConfig(undefined).sentencePauseMs).toBe(50)
   })
 
   it("normalizes configured speech speeds to quarter steps within range", () => {
